@@ -548,6 +548,81 @@
         .harita-card { background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px 16px; cursor:pointer; position:relative; overflow:hidden; display:flex; align-items:center; gap:14px; transition:0.15s; }
         .harita-card:active { background:rgba(255,255,255,0.08); transform:scale(0.98); }
     </style>
+
+    <!-- Firebase -->
+    <script type="module" id="firebaseModule">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyC-1mpdkmPnLM6ZgGHlmN2jqanEObKR2Fc",
+            authDomain: "bira-mahzenim.firebaseapp.com",
+            projectId: "bira-mahzenim",
+            storageBucket: "bira-mahzenim.firebasestorage.app",
+            messagingSenderId: "544805186034",
+            appId: "1:544805186034:web:114a750faf2ea6940c636b"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+
+        // Global fonksiyonlar
+        window.googleLogin = function() {
+            signInWithPopup(auth, provider)
+                .then(function(result) {
+                    var user = result.user;
+                    localStorage.setItem('bm_user_name', user.displayName);
+                    localStorage.setItem('bm_user_email', user.email);
+                    localStorage.setItem('bm_user_photo', user.photoURL || '');
+                    updateLoginUI(user);
+                })
+                .catch(function(error) {
+                    alert('Giris hatasi: ' + error.message);
+                });
+        };
+
+        window.googleLogout = function() {
+            signOut(auth).then(function() {
+                localStorage.removeItem('bm_user_name');
+                localStorage.removeItem('bm_user_email');
+                localStorage.removeItem('bm_user_photo');
+                updateLoginUI(null);
+            });
+        };
+
+        // Auth state listener
+        onAuthStateChanged(auth, function(user) {
+            if (user) {
+                localStorage.setItem('bm_user_name', user.displayName);
+                localStorage.setItem('bm_user_email', user.email);
+                localStorage.setItem('bm_user_photo', user.photoURL || '');
+            }
+            updateLoginUI(user);
+        });
+
+        function updateLoginUI(user) {
+            var loginBtn = document.getElementById('googleLoginBtn');
+            var userPanel = document.getElementById('userPanel');
+            var userName = document.getElementById('sidebarUserName');
+            var userEmail = document.getElementById('sidebarUserEmail');
+            var userPhoto = document.getElementById('sidebarUserPhoto');
+
+            if (user) {
+                if (loginBtn) loginBtn.style.display = 'none';
+                if (userPanel) userPanel.style.display = 'block';
+                if (userName) userName.textContent = user.displayName;
+                if (userEmail) userEmail.textContent = user.email;
+                if (userPhoto && user.photoURL) {
+                    userPhoto.src = user.photoURL;
+                    userPhoto.style.display = 'block';
+                }
+            } else {
+                if (loginBtn) loginBtn.style.display = 'block';
+                if (userPanel) userPanel.style.display = 'none';
+            }
+        }
+    </script>
 </head>
 <body>
 
@@ -558,6 +633,28 @@
 </div>
 
 <div id="sidebar" class="sidebar">
+
+    <!-- GOOGLE GİRİŞ PANELİ -->
+    <button id="googleLoginBtn" onclick="googleLogin()" style="width:100%;background:#fff;color:#444;border:none;border-radius:12px;padding:13px 16px;font-size:13px;font-weight:bold;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        Google ile Giriş Yap
+    </button>
+
+    <!-- KULLANICI PANELİ (giriş yapınca görünür) -->
+    <div id="userPanel" style="display:none;background:rgba(255,255,255,0.06);border-radius:12px;padding:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.1);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+            <img id="sidebarUserPhoto" style="width:36px;height:36px;border-radius:50%;display:none;border:2px solid #f39c12;" src="" alt="">
+            <div>
+                <div id="sidebarUserName" style="font-size:13px;font-weight:bold;color:#fff;"></div>
+                <div id="sidebarUserEmail" style="font-size:10px;color:#a4b0be;"></div>
+            </div>
+        </div>
+        <button onclick="googleLogout()" style="width:100%;background:rgba(231,76,60,0.15);border:1px solid rgba(231,76,60,0.3);color:#e74c3c;border-radius:8px;padding:8px;font-size:11px;font-weight:bold;cursor:pointer;">
+            <i class="fas fa-sign-out-alt"></i> Çıkış Yap
+        </button>
+    </div>
+    <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:0 0 12px 0;">
+
     <div class="sidebar-header" style="text-align: center; margin-bottom: 5px;">
         <b style="color: var(--accent); font-size: 16px;">Bira Mahzenim</b>
         <p style="font-size: 11px; color: #888; margin: 5px 0 2px 0;">Usta Yönetim Paneli</p>
