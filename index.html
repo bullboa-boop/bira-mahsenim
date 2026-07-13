@@ -2,7 +2,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bira Mahzenim v5.0 ChipPicker</title>
+    <title>Bira Mahzenim v5.6 ChipPicker</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -15,7 +15,7 @@
         }
         html, body { overscroll-behavior-y: none; }
         body { font-family: 'Segoe UI', sans-serif; background-color: var(--bg); color: var(--txt); margin: 0; padding-bottom: 90px; overflow-x: hidden; min-height: 100vh; box-sizing: border-box; }
-        .header { background: var(--header-bg); padding: 20px; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.6); position: sticky; top: 0; z-index: 1000; border-bottom: 3px solid #f1c40f; }
+        .header { background: var(--header-bg); padding: 12px 20px; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.6); position: sticky; top: 0; z-index: 1000; border-bottom: 3px solid #f1c40f; }
         .header h2 { margin: 0; font-size: 18px; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); color: white; }
         .menu-btn { position: absolute; left: 20px; font-size: 22px; cursor: pointer; color: white; }
         .sidebar { position: fixed; left: -280px; top: 0; width: 260px; height: 100%; background: #111; z-index: 2100; transition: 0.3s; padding: 25px 20px 90px 20px; box-sizing: border-box; overflow-y: auto; }
@@ -553,6 +553,7 @@
     <script type="module" id="firebaseModule">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyC-1mpdkmPnLM6ZgGHlmN2jqanEObKR2Fc",
@@ -565,9 +566,82 @@
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
+        const db = getFirestore(app);
         const provider = new GoogleAuthProvider();
 
         // Global fonksiyonlar
+        // Firestore'a veri kaydet
+        async function saveToFirestore(uid) {
+            try {
+                var STORAGE_KEY = 'bullemann_v187_data';
+                var data = localStorage.getItem(STORAGE_KEY);
+                if (!data) return;
+                await setDoc(doc(db, 'users', uid), {
+                    brews: data,
+                    updatedAt: new Date().toISOString()
+                });
+                console.log('Firestore kayit OK');
+            } catch(e) {
+                console.error('Firestore kayit hatasi:', e);
+            }
+        }
+
+        // Firestore'dan veri yukle
+        async function loadFromFirestore(uid) {
+            try {
+                var docSnap = await getDoc(doc(db, 'users', uid));
+                if (docSnap.exists()) {
+                    var data = docSnap.data();
+                    if (data.brews) {
+                        var STORAGE_KEY = 'bullemann_v187_data';
+                        var localData = localStorage.getItem(STORAGE_KEY);
+                        var localBrews = localData ? JSON.parse(localData) : [];
+                        var cloudBrews = JSON.parse(data.brews);
+
+                        // Birlestirelim - cloud + local unique olanlari
+                        var merged = cloudBrews;
+                        if (localBrews.length > 0) {
+                            var cloudIds = cloudBrews.map(function(b){return b.id;});
+                            localBrews.forEach(function(b){
+                                if (cloudIds.indexOf(b.id) === -1) {
+                                    merged.push(b);
+                                }
+                            });
+                        }
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+                        console.log('Firestore veri yuklendi: ' + merged.length + ' kit');
+
+                        // UI'yi yenile
+                        if (window.render) window.render();
+                        showSyncToast('☁️ ' + merged.length + ' kit buluttan yuklendi!', '#2ecc71');
+                    }
+                } else {
+                    // Cloud bos, local varsa cloud'a yukle
+                    await saveToFirestore(uid);
+                    showSyncToast('☁️ Veriler buluta kaydedildi!', '#3498db');
+                }
+            } catch(e) {
+                console.error('Firestore yukleme hatasi:', e);
+            }
+        }
+
+        function showSyncToast(msg, color) {
+            var toast = document.createElement('div');
+            toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:' + color + ';color:#fff;padding:10px 20px;border-radius:25px;font-size:12px;font-weight:bold;z-index:99999;white-space:nowrap;box-shadow:0 4px 15px rgba(0,0,0,0.3);';
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            setTimeout(function(){ toast.remove(); }, 3000);
+        }
+
+        // Global olarak saveToFirestore erisimi
+        window.syncToCloud = function() {
+            var user = auth.currentUser;
+            if (!user) { alert('Once giris yapmaniz lazim!'); return; }
+            saveToFirestore(user.uid).then(function(){
+                showSyncToast('☁️ Veriler buluta kaydedildi!', '#2ecc71');
+            });
+        };
+
         window.googleLogin = function() {
             signInWithPopup(auth, provider)
                 .then(function(result) {
@@ -576,6 +650,8 @@
                     localStorage.setItem('bm_user_email', user.email);
                     localStorage.setItem('bm_user_photo', user.photoURL || '');
                     updateLoginUI(user);
+                    // Giris yapinca cloud'dan yukle
+                    loadFromFirestore(user.uid);
                 })
                 .catch(function(error) {
                     alert('Giris hatasi: ' + error.message);
@@ -597,9 +673,26 @@
                 localStorage.setItem('bm_user_name', user.displayName);
                 localStorage.setItem('bm_user_email', user.email);
                 localStorage.setItem('bm_user_photo', user.photoURL || '');
+                // Sayfa acilinca otomatik yukle
+                loadFromFirestore(user.uid);
             }
             updateLoginUI(user);
         });
+
+        // Veri degisince otomatik cloud'a kaydet
+        var origSetItem = localStorage.setItem.bind(localStorage);
+        localStorage.setItem = function(key, value) {
+            origSetItem(key, value);
+            if (key === 'bullemann_v187_data') {
+                var user = auth.currentUser;
+                if (user) {
+                    clearTimeout(window._syncTimer);
+                    window._syncTimer = setTimeout(function(){
+                        saveToFirestore(user.uid);
+                    }, 2000); // 2 saniye sonra kaydet
+                }
+            }
+        };
 
         function updateLoginUI(user) {
             var loginBtn = document.getElementById('googleLoginBtn');
@@ -629,7 +722,7 @@
 
 <div class="header" id="mainHeader">
     <div class="menu-btn" onclick="toggleSidebar()"><i class="fas fa-bars"></i></div>
-    <h2>Bira Mahzenim</h2><span style="position:absolute;right:15px;font-size:9px;background:rgba(0,0,0,0.3);padding:2px 7px;border-radius:8px;color:#f1c40f;">v5.0</span>
+    <h2>Bira Mahzenim</h2><span style="position:absolute;right:15px;font-size:9px;background:rgba(0,0,0,0.3);padding:2px 7px;border-radius:8px;color:#f1c40f;">v5.6</span>
 </div>
 
 <div id="sidebar" class="sidebar">
@@ -646,23 +739,24 @@
             <img id="sidebarUserPhoto" style="width:36px;height:36px;border-radius:50%;display:none;border:2px solid #f39c12;" src="" alt="">
             <div>
                 <div id="sidebarUserName" style="font-size:13px;font-weight:bold;color:#fff;"></div>
-                <div id="sidebarUserEmail" style="font-size:10px;color:#a4b0be;"></div>
+                
             </div>
         </div>
-        <button onclick="googleLogout()" style="width:100%;background:rgba(231,76,60,0.15);border:1px solid rgba(231,76,60,0.3);color:#e74c3c;border-radius:8px;padding:8px;font-size:11px;font-weight:bold;cursor:pointer;">
-            <i class="fas fa-sign-out-alt"></i> Çıkış Yap
-        </button>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+            <button onclick="syncToCloud()" style="flex:1;background:rgba(52,152,219,0.15);border:1px solid rgba(52,152,219,0.3);color:#3498db;border-radius:8px;padding:8px;font-size:10px;font-weight:bold;cursor:pointer;">
+                <i class="fas fa-cloud-upload-alt"></i> Buluta Kaydet
+            </button>
+            <button onclick="googleLogout()" style="flex:1;background:rgba(231,76,60,0.15);border:1px solid rgba(231,76,60,0.3);color:#e74c3c;border-radius:8px;padding:8px;font-size:10px;font-weight:bold;cursor:pointer;">
+                <i class="fas fa-sign-out-alt"></i> Cikis
+            </button>
+        </div>
     </div>
     <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:0 0 12px 0;">
 
-    <div class="sidebar-header" style="text-align: center; margin-bottom: 5px;">
-        <b style="color: var(--accent); font-size: 16px;">Bira Mahzenim</b>
-        <p style="font-size: 11px; color: #888; margin: 5px 0 2px 0;">Usta Yönetim Paneli</p>
-        <p style="font-size: 11px; color: #a0c4ff; margin: 0; font-weight: bold;">BuLLBoa@gmail.com</p>
-    </div>
+    
 
-    <div id="masteryContainer" style="background:#1c222d; border-radius:10px; padding:12px; margin: 15px 0; border:1px solid #3d4852; text-align: left;">
-        <div style="font-size:10px; color:#a4b0be; text-transform:uppercase; margin-bottom:4px; font-weight:bold;"><i class="fas fa-medal"></i> Ustalık Seviyesi</div>
+    <div id="masteryContainer" style="background:#1c222d; border-radius:10px; padding:12px; margin: 15px 0; border:1px solid #3d4852; text-align: left; cursor:pointer;" onclick="openUstalikYolculugu()">
+        <div style="font-size:10px; color:#a4b0be; text-transform:uppercase; margin-bottom:4px; font-weight:bold; display:flex; justify-content:space-between; align-items:center;"><span><i class="fas fa-medal"></i> Ustalık Seviyesi</span><i class="fas fa-chevron-right" style="font-size:9px;"></i></div>
         <div id="masteryTitle" style="font-size:13px; color:var(--warn); font-weight:bold; margin-bottom:6px;">Çırak (0L)</div>
         <div class="gas-bar-bg" style="height:6px; background:#111;"><div id="masteryBar" class="gas-bar-fill" style="width:0%; background:linear-gradient(90deg, #f39c12, #d35400);"></div></div>
         <div id="masteryNext" style="font-size:9px; color:#a4b0be; margin-top:4px; text-align:right;">Sonraki: 50L</div>
@@ -680,28 +774,82 @@
         <input type="file" accept=".json" onchange="importData(event)" style="display: none;">
     </label>
     
-    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideSteps')"><i class="fas fa-list-ol"></i> Bira Kurulum Adımları</button>
+    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideSteps')" style="background: linear-gradient(90deg, #e74c3c, #c0392b);"><i class="fas fa-list-ol"></i> Bira Kurulum Adımları</button>
     <div id="guideSteps" class="side-guide-box">
-        <b>Bira Kurulum Adımları:</b>
-        <ol>
-            <li>Kova ve tüm ekipmanları iyice arındırın (Sanitasyon).</li>
-            <li>Kit özünü sıcak suda eritin, kovaya ekleyin.</li>
-            <li>Tarife göre şeker, malt özü và su ekleyip karıştırın.</li>
-            <li>Isı 18-22°C arasına gelince mayayı ekleyip kapağı kapatın.</li>
-        </ol>
+        <div style="font-size:12px;font-weight:bold;color:#f39c12;margin-bottom:8px;"><i class="fas fa-beer"></i> BİRA KURULUM ADIMLARI</div>
+        <p style="margin:0 0 10px 0;line-height:1.5;">İlk kitini kurarken bu 6 adımı sırayla takip et, mükemmel bir fermantasyon garantile!</p>
+
+        <div style="background:rgba(231,76,60,0.1);border-left:3px solid #e74c3c;border-radius:0 8px 8px 0;padding:8px;margin-bottom:8px;">
+            <b style="color:#e74c3c;">🧼 1. Sanitasyon (En Kritik Adım!)</b><br>
+            Kova, kapak, kaşık, hava kilidi — <b>her şeyi</b> Star San veya sodyum metabisülfit ile dezenfekte et. Kontaminasyon en büyük düşmanın!
+        </div>
+
+        <div style="background:rgba(243,156,18,0.1);border-left:3px solid #f39c12;border-radius:0 8px 8px 0;padding:8px;margin-bottom:8px;">
+            <b style="color:#f39c12;">🔥 2. Kit Özünü Eritme</b><br>
+            Kit tenekesini <b>45-50°C</b> sıcak suda (kaynatmadan!) 10 dakika bekletip yumuşat. Sonra kovaya boşalt.
+        </div>
+
+        <div style="background:rgba(52,152,219,0.1);border-left:3px solid #3498db;border-radius:0 8px 8px 0;padding:8px;margin-bottom:8px;">
+            <b style="color:#3498db;">💧 3. Su ve Şeker Ekleme</b><br>
+            Tarife göre <b>dekstroz/DME</b> ekle, ardından soğuk suyla toplam hacmi tamamla (genelde 20-23L). İyice karıştır — oksijenlenme burada faydalı!
+        </div>
+
+        <div style="background:rgba(46,204,113,0.1);border-left:3px solid #2ecc71;border-radius:0 8px 8px 0;padding:8px;margin-bottom:8px;">
+            <b style="color:#2ecc71;">🌡️ 4. Sıcaklık Kontrolü</b><br>
+            Hidrometreyle veya el ile kontrol et: <b>18-22°C</b> ideal aralık (maya tipine göre değişir). Çok sıcak mayayı öldürür, çok soğuk uyandırmaz!
+        </div>
+
+        <div style="background:rgba(155,89,182,0.1);border-left:3px solid #9b59b6;border-radius:0 8px 8px 0;padding:8px;margin-bottom:8px;">
+            <b style="color:#9b59b6;">🧫 5. Maya Ekleme</b><br>
+            Mayayı serpiştir (veya uyandırdıysan sıvı halde ekle). <b>Karıştırmaya gerek yok</b> — kendi kendine dağılır.
+        </div>
+
+        <div style="background:rgba(241,196,15,0.1);border-left:3px solid #f1c40f;border-radius:0 8px 8px 0;padding:8px;">
+            <b style="color:#f1c40f;">🔒 6. Kapatma ve Bekletme</b><br>
+            Kapağı sıkıca kapat, hava kilidini tak, karanlık ve sabit sıcaklıktaki bir yere koy. <b>24-48 saat içinde</b> köpüklenme başlamalı — o zaman fermantasyon çalışıyor demektir!
+        </div>
+
+        <div style="margin-top:10px;background:rgba(0,0,0,0.2);border-radius:8px;padding:8px;font-size:10px;color:#a4b0be;text-align:center;">
+            💡 <b>Bullemann İpucu:</b> Her adımı bu uygulamaya not olarak kaydet, sonraki kitlerinde neyin işe yaradığını hatırlarsın!
+        </div>
     </div>
 
-    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideYeast')"><i class="fas fa-flask"></i> Maya Nasıl Uyandırılır?</button>
+    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideYeast')" style="background: linear-gradient(90deg, #9b59b6, #8e44ad);"><i class="fas fa-flask"></i> Maya Nasıl Uyandırılır?</button>
     <div id="guideYeast" class="side-guide-box">
-        <b>Maya Uyandırma Rehberi:</b>
-        <ol>
-            <li>Dezenfekte edilmiş yarım çay bardağı ılık suya (25-30°C) mayayı serpiştirin.</li>
-            <li>Kıpırdatmadan 15 dakika bekletin.</li>
-            <li>Yavaşça karıştırıp 15 dakika daha bekletin ve kovaya ekleyin.</li>
-        </ol>
+        <div style="font-size:12px;font-weight:bold;color:#9b59b6;margin-bottom:8px;"><i class="fas fa-flask"></i> MAYA UYANDIRMA (REHYDRATION)</div>
+        <p style="margin:0 0 10px 0;line-height:1.5;">Kuru mayayı direkt kovaya atmak yerine önce uyandırmak, hücrelerin şoka girmesini önler ve fermantasyon başarısını artırır.</p>
+
+        <div style="background:rgba(52,152,219,0.1);border-left:3px solid #3498db;border-radius:0 8px 8px 0;padding:8px;margin-bottom:8px;">
+            <b style="color:#3498db;">1️⃣ Su Hazırlığı</b><br>
+            Dezenfekte edilmiş bir bardağa <b>yarım çay bardağı</b> (yaklaşık 100ml) <b>25-30°C</b> ılık su koy. Ne soğuk ne sıcak — elinle test edince "ılık banyo suyu" gibi hissetmeli.
+        </div>
+
+        <div style="background:rgba(155,89,182,0.1);border-left:3px solid #9b59b6;border-radius:0 8px 8px 0;padding:8px;margin-bottom:8px;">
+            <b style="color:#9b59b6;">2️⃣ Mayayı Serpiştir</b><br>
+            Kuru maya paketini suyun üzerine <b>eşit şekilde serpiştir</b>. Hemen karıştırma — maya kendiliğinden suya nüfuz etsin.
+        </div>
+
+        <div style="background:rgba(46,204,113,0.1);border-left:3px solid #2ecc71;border-radius:0 8px 8px 0;padding:8px;margin-bottom:8px;">
+            <b style="color:#2ecc71;">3️⃣ İlk Bekleme (15 Dakika)</b><br>
+            Bardağı <b>hiç dokunmadan</b> 15 dakika bekle. Bu sürede maya hücreleri suyu emmeye başlar. Üstte hafif köpük görebilirsin — bu iyi bir işaret!
+        </div>
+
+        <div style="background:rgba(243,156,18,0.1);border-left:3px solid #f39c12;border-radius:0 8px 8px 0;padding:8px;margin-bottom:8px;">
+            <b style="color:#f39c12;">4️⃣ Karıştır ve İkinci Bekleme</b><br>
+            Yavaşça, nazikçe karıştır (çırpma yok!). <b>15 dakika daha</b> bekle. Karışım krema kıvamına benzer bir görünüm alır.
+        </div>
+
+        <div style="background:rgba(231,76,60,0.1);border-left:3px solid #e74c3c;border-radius:0 8px 8px 0;padding:8px;">
+            <b style="color:#e74c3c;">5️⃣ Kovaya Ekle</b><br>
+            Karışımı direkt kovadaki şıraya dök. <b>30 dakikadan fazla bekletme</b> — maya açlıktan zayıflamaya başlar!
+        </div>
+
+        <div style="margin-top:10px;background:rgba(0,0,0,0.2);border-radius:8px;padding:8px;font-size:10px;color:#a4b0be;text-align:center;">
+            ⚠️ <b>Dikkat:</b> Su sıcaklığı 35°C üzerine çıkarsa mayayı öldürebilirsin. 20°C altındaysa maya düzgün uyanmaz.
+        </div>
     </div>
     
-    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideHop')"><i class="fas fa-leaf"></i> Dry Hop Rehberi</button>
+    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideHop')" style="background: linear-gradient(90deg, #27ae60, #229954);"><i class="fas fa-leaf"></i> Dry Hop Rehberi</button>
     <div id="guideHop" class="side-guide-box">
         <div style="font-size:12px;font-weight:bold;color:#2ecc71;margin-bottom:8px;"><i class="fas fa-leaf"></i> DRY HOP NEDIR?</div>
         <p style="margin:0 0 8px 0;line-height:1.5;">Dry hop; serbetciotunun fermantasyon sirasinda veya sonrasinda, bira <b>sogukken</b> kovaya eklenmesi islemidir.</p>
@@ -729,27 +877,172 @@
         </div>
     </div>
 
-    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideStyleRehber')"><i class="fas fa-beer"></i> Bira Türleri & Karakterleri</button>
+    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideStyleRehber')" style="background: linear-gradient(90deg, #f39c12, #d35400);"><i class="fas fa-beer"></i> Bira Türleri & Karakterleri</button>
     <div id="guideStyleRehber" class="side-guide-box">
-        <b>Bira Özellikleri, Karakterleri & Sunumu:</b><br><br>
-        <div style="max-height: 280px; overflow-y: auto; padding-right: 5px; line-height: 1.5;">
-            <b>🍺 Pilsner</b><br>Karakter: Hafif, berrak ve sek bitişli. Tam yazlık ferahlık kanki!<br><br>
-            <b>🍺 Premium Pilsner</b><br>Karakter: Zengin malt kokulu, yoğun köpüklü usta Pilsneri.<br><br>
-            <b>🍺 Export</b><br>Karakter: Malt gövdesi pilsnere göre daha dolgun.<br><br>
-            <b>🍺 Lager</b><br>Karakter: Temiz, pürüzsüz içimli, serinletici geleneksel lezzet.<br><br>
-            <b>🍺 Wheat</b><br>Karakter: Muz ve karanfil aromalı. Tüyolar: Şişenin son iki parmağını çalkalayıp mayasıyla dök kanki!<br><br>
-            <b>🍺 Belgian Wit</b><br>Karakter: Kişniş ve portakal kabuğu esintili, çok ferah buğday.<br><br>
-            <b>🍺 Yorkshire</b><br>Karakter: Kremamsı köpüklü, geleneksel İngiliz ale esintisi.<br><br>
-            <b>🍺 English IPA</b><br>Karakter: Şerbetçiotu aroması ve burukluğu ön planda olan asil tür.<br><br>
-            <b>🍺 American IPA</b><br>Karakter: Tropikal ve narenciye kokuları patlayan aromatik bomba.<br><br>
-            <b>🍺 Ruby Ale</b><br>Karakter: Karamel ve bisküvi tatlılığında, kızıl renkli usta işi.<br><br>
-            <b>🍺 Summer Ale</b><br>Karakter: Sarı renkli, aşırı kolay içimli, Antalya sıcağına jilet gibi giden tür.<br><br>
-            <b>🍺 Bock</b><br>Karakter: Karamel ve koyu malt gövdeli, doyurucu ve tok içimli.<br><br>
-            <b>🍺 Stout</b><br>Karakter: Kahve ve çikolata kokulu, simsiyah, kadifemsi usta siyahı.<br><br>
-            <b>🍺 Dark Ale</b><br>Karakter: Kavrulmuş malt lezzeti barındıran, koyu renkli ve gövdeli ale.<br><br>
-            <b>🍺 Cider</b><br>Karakter: Tamamen elma özlü, tatlı-ekşi meyve ferahlığı.
+        <div style="font-size:12px;font-weight:bold;color:#f39c12;margin-bottom:8px;"><i class="fas fa-beer"></i> BİRA TÜRLERİ & KARAKTERLERİ</div>
+        <p style="margin:0 0 10px 0;line-height:1.5;">15 farklı bira stilinin karakteri, ideal ABV aralığı ve sunum önerisi.</p>
+
+        <div style="max-height:340px;overflow-y:auto;padding-right:4px;">
+
+            <div style="background:rgba(241,196,15,0.08);border-left:3px solid #f1c40f;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#f1c40f;">🍺 Pilsner</b><span style="font-size:9px;background:rgba(241,196,15,0.2);color:#f1c40f;padding:2px 6px;border-radius:8px;">%4.5-5.5</span></div>
+                Hafif, berrak ve sek bitişli. Tam yazlık ferahlık kanki! <i>Sunum: Uzun bardak, 4-6°C</i>
+            </div>
+
+            <div style="background:rgba(243,156,18,0.08);border-left:3px solid #f39c12;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#f39c12;">🍺 Premium Pilsner</b><span style="font-size:9px;background:rgba(243,156,18,0.2);color:#f39c12;padding:2px 6px;border-radius:8px;">%5-5.8</span></div>
+                Zengin malt kokulu, yoğun köpüklü usta Pilsneri. <i>Sunum: Pilsner kadehi, 5-7°C</i>
+            </div>
+
+            <div style="background:rgba(230,126,34,0.08);border-left:3px solid #e67e22;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#e67e22;">🍺 Export</b><span style="font-size:9px;background:rgba(230,126,34,0.2);color:#e67e22;padding:2px 6px;border-radius:8px;">%5-5.5</span></div>
+                Malt gövdesi pilsnere göre daha dolgun. <i>Sunum: Uzun bardak, 6-8°C</i>
+            </div>
+
+            <div style="background:rgba(241,196,15,0.08);border-left:3px solid #f1c40f;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#f1c40f;">🍺 Lager</b><span style="font-size:9px;background:rgba(241,196,15,0.2);color:#f1c40f;padding:2px 6px;border-radius:8px;">%4-5.5</span></div>
+                Temiz, pürüzsüz içimli, serinletici geleneksel lezzet. <i>Sunum: Fıçı bardağı, 4-6°C</i>
+            </div>
+
+            <div style="background:rgba(230,126,34,0.08);border-left:3px solid #e67e22;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#e67e22;">🍺 Wheat</b><span style="font-size:9px;background:rgba(230,126,34,0.2);color:#e67e22;padding:2px 6px;border-radius:8px;">%4.5-5.5</span></div>
+                Muz ve karanfil aromalı. <i>Tüyo: Şişenin son iki parmağını çalkalayıp mayasıyla dök kanki!</i>
+            </div>
+
+            <div style="background:rgba(241,196,15,0.08);border-left:3px solid #f1c40f;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#f1c40f;">🍺 Belgian Wit</b><span style="font-size:9px;background:rgba(241,196,15,0.2);color:#f1c40f;padding:2px 6px;border-radius:8px;">%4.5-5.5</span></div>
+                Kişniş ve portakal kabuğu esintili, çok ferah buğday. <i>Sunum: Wit kadehi, 3-5°C</i>
+            </div>
+
+            <div style="background:rgba(211,84,0,0.08);border-left:3px solid #d35400;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#d35400;">🍺 Yorkshire</b><span style="font-size:9px;background:rgba(211,84,0,0.2);color:#d35400;padding:2px 6px;border-radius:8px;">%3.5-4.5</span></div>
+                Kremamsı köpüklü, geleneksel İngiliz ale esintisi. <i>Sunum: Pint bardak, 10-12°C</i>
+            </div>
+
+            <div style="background:rgba(211,84,0,0.08);border-left:3px solid #d35400;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#d35400;">🍺 English IPA</b><span style="font-size:9px;background:rgba(211,84,0,0.2);color:#d35400;padding:2px 6px;border-radius:8px;">%5-6</span></div>
+                Şerbetçiotu aroması ve burukluğu ön planda olan asil tür. <i>Sunum: IPA kadehi, 8-10°C</i>
+            </div>
+
+            <div style="background:rgba(46,204,113,0.08);border-left:3px solid #2ecc71;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#2ecc71;">🍺 American IPA</b><span style="font-size:9px;background:rgba(46,204,113,0.2);color:#2ecc71;padding:2px 6px;border-radius:8px;">%5.5-7.5</span></div>
+                Tropikal ve narenciye kokuları patlayan aromatik bomba. <i>Sunum: IPA kadehi, 7-9°C</i>
+            </div>
+
+            <div style="background:rgba(192,57,43,0.08);border-left:3px solid #c0392b;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#c0392b;">🍺 Ruby Ale</b><span style="font-size:9px;background:rgba(192,57,43,0.2);color:#c0392b;padding:2px 6px;border-radius:8px;">%4.5-5.5</span></div>
+                Karamel ve bisküvi tatlılığında, kızıl renkli usta işi. <i>Sunum: Pint bardak, 10-12°C</i>
+            </div>
+
+            <div style="background:rgba(241,196,15,0.08);border-left:3px solid #f1c40f;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#f1c40f;">🍺 Summer Ale</b><span style="font-size:9px;background:rgba(241,196,15,0.2);color:#f1c40f;padding:2px 6px;border-radius:8px;">%4-4.5</span></div>
+                Sarı renkli, aşırı kolay içimli, Antalya sıcağına jilet gibi giden tür. <i>Sunum: Uzun bardak, 4-6°C</i>
+            </div>
+
+            <div style="background:rgba(211,84,0,0.08);border-left:3px solid #d35400;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#d35400;">🍺 Bock</b><span style="font-size:9px;background:rgba(211,84,0,0.2);color:#d35400;padding:2px 6px;border-radius:8px;">%6-7.5</span></div>
+                Karamel ve koyu malt gövdeli, doyurucu ve tok içimli. <i>Sunum: Kupa bardak, 8-10°C</i>
+            </div>
+
+            <div style="background:rgba(52,73,94,0.15);border-left:3px solid #2c3e50;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#95a5a6;">🍺 Stout</b><span style="font-size:9px;background:rgba(52,73,94,0.3);color:#95a5a6;padding:2px 6px;border-radius:8px;">%4.5-6</span></div>
+                Kahve ve çikolata kokulu, simsiyah, kadifemsi usta siyahı. <i>Sunum: Nonik pint, 10-12°C</i>
+            </div>
+
+            <div style="background:rgba(52,73,94,0.15);border-left:3px solid #2c3e50;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#95a5a6;">🍺 Dark Ale</b><span style="font-size:9px;background:rgba(52,73,94,0.3);color:#95a5a6;padding:2px 6px;border-radius:8px;">%4.5-5.5</span></div>
+                Kavrulmuş malt lezzeti barındıran, koyu renkli ve gövdeli ale. <i>Sunum: Pint bardak, 10-12°C</i>
+            </div>
+
+            <div style="background:rgba(230,126,34,0.08);border-left:3px solid #e67e22;border-radius:0 8px 8px 0;padding:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;"><b style="color:#e67e22;">🍎 Cider</b><span style="font-size:9px;background:rgba(230,126,34,0.2);color:#e67e22;padding:2px 6px;border-radius:8px;">%4-6</span></div>
+                Tamamen elma özlü, tatlı-ekşi meyve ferahlığı. <i>Sunum: Şampanya kadehi, 4-6°C</i>
+            </div>
+
+        </div>
+
+        <div style="margin-top:10px;background:rgba(0,0,0,0.2);border-radius:8px;padding:8px;font-size:10px;color:#a4b0be;text-align:center;">
+            💡 <b>Bullemann İpucu:</b> Doğru sıcaklıkta servis, biranın gerçek aromasını ortaya çıkarır. Fazla soğuk servis lezzeti bastırır!
         </div>
     </div>
+
+    <button class="side-btn" onclick="requestWeatherManually()" style="background:linear-gradient(135deg,#e74c3c,#f39c12);color:white;border:none;padding:14px;border-radius:12px;font-size:13px;font-weight:bold;cursor:pointer;width:100%;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:8px;">
+        🌡️ Hava Durumunu Kontrol Et
+    </button>
+    <div id="weatherManualStatus" style="font-size:10px;color:#a4b0be;text-align:center;margin-bottom:12px;"></div>
+
+    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideRecipeScore')" style="background: linear-gradient(90deg, #2ecc71, #27ae60);"><i class="fas fa-trophy"></i> En Başarılı Tariflerim</button>
+    <div id="guideRecipeScore" class="side-guide-box">
+        <div style="font-size:12px;font-weight:bold;color:#2ecc71;margin-bottom:8px;"><i class="fas fa-trophy"></i> OTOMATİK TARİF SIRALAMASI</div>
+        <p style="margin:0 0 10px 0;line-height:1.5;">Puan, maliyet, hız ve ABV tutarlılığına göre en başarılı tariflerin otomatik sıralanır.</p>
+        <div id="recipeScoreList"></div>
+        <div style="margin-top:8px;font-size:9px;color:#636e72;text-align:center;">Puan formülü: %40 senin yıldızın + %25 maliyet verimliliği + %20 hız + %15 ABV tutarlılığı</div>
+    </div>
+
+    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideStokTakip')" style="background: linear-gradient(90deg, #3498db, #2980b9);"><i class="fas fa-boxes"></i> Malzeme Stok Takibi</button>
+    <div id="guideStokTakip" class="side-guide-box">
+        <div style="font-size:12px;font-weight:bold;color:#3498db;margin-bottom:8px;"><i class="fas fa-boxes"></i> EVDEKİ MALZEME STOKUM</div>
+        <p style="margin:0 0 10px 0;line-height:1.5;">Evinde ne kadar malzeme kaldığını takip et, azalınca haber ver!</p>
+
+        <div id="stockItemsList" style="margin-bottom:10px;"></div>
+
+        <div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:8px;margin-bottom:8px;">
+            <div style="display:flex;gap:6px;margin-bottom:6px;">
+                <input type="text" id="stockNameInput" placeholder="Malzeme adı (örn: S-04 Maya)" style="flex:2;padding:8px;background:rgba(0,0,0,0.3);border:1px solid #3d4852;border-radius:6px;color:white;font-size:11px;">
+                <input type="number" id="stockQtyInput" placeholder="Adet" style="flex:1;padding:8px;background:rgba(0,0,0,0.3);border:1px solid #3d4852;border-radius:6px;color:white;font-size:11px;">
+            </div>
+            <select id="stockUnitInput" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid #3d4852;border-radius:6px;color:white;font-size:11px;margin-bottom:6px;">
+                <option value="Adet">Adet (paket/şişe)</option>
+                <option value="kg">Kilogram</option>
+                <option value="g">Gram</option>
+                <option value="L">Litre</option>
+            </select>
+            <button onclick="addStockItem()" style="width:100%;background:#3498db;color:white;border:none;padding:8px;border-radius:6px;font-size:11px;font-weight:bold;cursor:pointer;">+ Malzeme Ekle</button>
+        </div>
+
+        <div style="font-size:9px;color:#636e72;text-align:center;">💡 Kurulum yaparken kullandığın malzemeleri buradan düş, otomatik azalsın.</div>
+    </div>
+
+    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideReceteDefteri')" style="background: linear-gradient(90deg, #e67e22, #d35400);"><i class="fas fa-book-open"></i> Kişisel Reçete Defterim</button>
+    <div id="guideReceteDefteri" class="side-guide-box">
+        <div style="font-size:12px;font-weight:bold;color:#e67e22;margin-bottom:8px;"><i class="fas fa-book-open"></i> KENDİ TARİFLERİM</div>
+        <p style="margin:0 0 10px 0;line-height:1.5;">Kendi geliştirdiğin özel dokunuşları kaydet — bir dahaki sefere unutma!</p>
+
+        <div id="myRecipesList" style="margin-bottom:10px;"></div>
+
+        <div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:8px;">
+            <input type="text" id="recipeTitleInput" placeholder="Tarif başlığı (örn: Kahveli Stout v2)" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid #3d4852;border-radius:6px;color:white;font-size:11px;margin-bottom:6px;box-sizing:border-box;">
+            <textarea id="recipeNoteInput" placeholder="Detaylar: hangi malzeme, ne zaman, ne kadar ekliyorsun..." style="width:100%;height:60px;padding:8px;background:rgba(0,0,0,0.3);border:1px solid #3d4852;border-radius:6px;color:white;font-size:11px;margin-bottom:6px;box-sizing:border-box;resize:none;"></textarea>
+            <button onclick="addMyRecipe()" style="width:100%;background:#e67e22;color:white;border:none;padding:8px;border-radius:6px;font-size:11px;font-weight:bold;cursor:pointer;">+ Tarif Kaydet</button>
+        </div>
+    </div>
+
+    <button class="side-btn side-btn-guide" onclick="toggleGuide('guideFotoGaleri')" style="background: linear-gradient(90deg, #1abc9c, #16a085);"><i class="fas fa-images"></i> Bira Fotoğraf Galerisi</button>
+    <div id="guideFotoGaleri" class="side-guide-box">
+        <div style="font-size:12px;font-weight:bold;color:#9b59b6;margin-bottom:8px;"><i class="fas fa-images"></i> BİRA FOTOĞRAF GALERİM</div>
+        <p style="margin:0 0 10px 0;line-height:1.5;">Ürettiğin biraların fotoğraflarını kaydet — renk, köpük, berraklık koleksiyonun!</p>
+
+        <label style="display:block;background:linear-gradient(135deg,#8e44ad,#9b59b6);color:white;border-radius:8px;padding:10px;text-align:center;font-size:11px;font-weight:bold;cursor:pointer;margin-bottom:10px;">
+            <i class="fas fa-camera"></i> Fotoğraf Ekle
+            <input type="file" id="galleryPhotoInput" accept="image/*" onchange="addGalleryPhoto(event)" style="display:none;">
+        </label>
+
+        <div id="galleryLabelSelect" style="margin-bottom:10px;">
+            <select id="galleryBrewSelect" style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid #3d4852;border-radius:6px;color:white;font-size:11px;"></select>
+        </div>
+
+        <div id="galleryGrid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;"></div>
+    </div>
+
+    <!-- SESLİ ASİSTAN BUTONU -->
+    <button onclick="openSesliAsistan()" style="background:linear-gradient(135deg,#e74c3c,#c0392b);color:white;border:none;padding:14px;border-radius:12px;font-size:13px;font-weight:bold;cursor:pointer;width:100%;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:8px;">
+        🎙️ Hey Bullemann - Sesli Asistan
+    </button>
+
+    <!-- KOKTEYL ÜRETİCİ BUTONU -->
+    <button onclick="openKokteylUretici()" style="background:linear-gradient(135deg,#8e44ad,#6c3483);color:white;border:none;padding:14px;border-radius:12px;font-size:13px;font-weight:bold;cursor:pointer;width:100%;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:8px;">
+        🍹 Bira Kokteyl Üretici
+    </button>
 
     <div class="side-calc-box">
         <h5>GÜNCEL PİYASA FİYATI</h5>
@@ -785,7 +1078,7 @@
 
     <!-- FORUM BUTONU -->
     <a href="https://bullboa.wixsite.com/biramahsenim" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,#6c5ce7,#a29bfe);color:white;border-radius:12px;padding:14px;font-size:13px;font-weight:bold;text-decoration:none;margin-top:12px;box-shadow:0 4px 12px rgba(108,92,231,0.3);">
-        <i class="fas fa-comments"></i> Bira Mahsenim Forum
+        <i class="fas fa-lightbulb"></i> Öneri
     </a>
 
     <!-- TELİF HAKKI -->
@@ -870,6 +1163,11 @@
         <!-- MAYA BİLGİ KUTUSU -->
         <div id="yeastInfoBox" style="display:none;background:rgba(160,196,255,0.08);border:1px solid rgba(160,196,255,0.3);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:11px;line-height:1.6;">
             <div id="yeastInfoText" style="color:#a0c4ff;font-weight:bold;"></div>
+        </div>
+
+        <!-- BARDAK/KADEH ÖNERİ KUTUSU -->
+        <div id="glassInfoBox" style="display:none;background:rgba(155,89,182,0.08);border:1px solid rgba(155,89,182,0.3);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:11px;line-height:1.6;">
+            <div id="glassInfoText" style="color:#c39bd3;font-weight:bold;"></div>
         </div>
 
         <!-- SATIR 4: Şeker Tipi + Kova Şekeri -->
@@ -984,7 +1282,7 @@
 
 <div id="mahzenPage" class="container">
     <div id="antalyaClimateWarning" style="display:none; background: rgba(231, 76, 60, 0.1); border-left: 3px solid #e74c3c; padding: 10px; font-size: 10px; color: #e74c3c; font-weight: bold; margin-bottom: 10px; border-radius: 12px; border: 1px solid rgba(231, 76, 60, 0.3);">
-        <i class="fas fa-sun"></i> ANTALYA YAZ ALARMI: Usta havalar ısınıyor! Fermantasyon ısı kontrolüne dikkat et veya bu aylarda Kveik maya kullanmayı düşün.
+        <i class="fas fa-sun"></i> <span id="weatherWarningText">Hava kontrol ediliyor...</span>
     </div>
 
     <div id="topCountdownWidget" style="background: linear-gradient(90deg, #8e44ad, #9b59b6); border-radius: 12px; padding: 10px; margin-bottom: 10px; font-size:11px; font-weight:bold; text-align:center; box-shadow:0 2px 5px rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.2); color:#fff; display:none;">
@@ -1083,7 +1381,7 @@
                 <div style="font-size:18px; font-weight:bold; color:#fff; margin-top:2px;">Usta Bullemann'ın Reçeteleri</div>
             </div>
             <div style="text-align:right;">
-                <div style="font-size:20px; font-weight:bold; color:var(--accent);">25</div>
+                <div style="font-size:20px; font-weight:bold; color:var(--accent);" id="marketTotalCount">50</div>
                 <div style="font-size:9px; color:#a4b0be; text-transform:uppercase;">Reçete</div>
             </div>
         </div>
@@ -1202,6 +1500,99 @@
 </div>
 
 
+<!-- SESLİ ASİSTAN - TAM SAYFA OVERLAY -->
+<div id="sesliAsistanOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#1a0808;z-index:9000;flex-direction:column;overflow:hidden;box-sizing:border-box;">
+    <div style="background:linear-gradient(135deg,#4a0e0e,#2d0808);padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:2px solid #e74c3c;flex-shrink:0;">
+        <button onclick="closeSesliAsistan()" style="background:rgba(231,76,60,0.15);border:1px solid rgba(231,76,60,0.3);color:#e74c3c;padding:8px 12px;border-radius:10px;font-size:12px;cursor:pointer;"><i class="fas fa-arrow-left"></i></button>
+        <div>
+            <div style="font-size:15px;font-weight:bold;color:#e74c3c;">🎙️ Hey Bullemann</div>
+            <div style="font-size:9px;color:#a4b0be;margin-top:1px;">Sesli Bira Asistanı</div>
+        </div>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:20px 16px 40px;display:flex;flex-direction:column;align-items:center;">
+
+        <div id="micButtonWrap" style="margin:30px 0 20px;">
+            <button id="micButton" onclick="toggleVoiceListening()" style="width:100px;height:100px;border-radius:50%;background:linear-gradient(135deg,#e74c3c,#c0392b);border:none;color:white;font-size:36px;cursor:pointer;box-shadow:0 8px 25px rgba(231,76,60,0.4);transition:0.2s;">
+                <i class="fas fa-microphone"></i>
+            </button>
+        </div>
+
+        <div id="voiceStatus" style="font-size:13px;color:#a4b0be;margin-bottom:20px;text-align:center;">Mikrofona basıp konuşmaya başla!</div>
+
+        <div id="voiceTranscript" style="width:100%;min-height:60px;background:rgba(0,0,0,0.3);border:1px solid rgba(231,76,60,0.2);border-radius:12px;padding:14px;margin-bottom:16px;font-size:13px;color:#ddd;display:none;"></div>
+
+        <div id="voiceResponse" style="width:100%;background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.25);border-radius:14px;padding:16px;font-size:13px;color:#fff;line-height:1.6;display:none;"></div>
+
+        <div style="width:100%;margin-top:24px;">
+            <div style="font-size:10px;font-weight:bold;color:#e74c3c;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">💬 Örnek Komutlar</div>
+            <div class="voice-example-chip" onclick="tryVoiceExample('Stok durumum nasıl')">Stok durumum nasıl?</div>
+            <div class="voice-example-chip" onclick="tryVoiceExample('En son kitim ne durumda')">En son kitim ne durumda?</div>
+            <div class="voice-example-chip" onclick="tryVoiceExample('Kaç şişem var')">Kaç şişem var?</div>
+            <div class="voice-example-chip" onclick="tryVoiceExample('Toplam kârım ne kadar')">Toplam kârım ne kadar?</div>
+            <div class="voice-example-chip" onclick="tryVoiceExample('Bugün hava nasıl')">Bugün hava nasıl?</div>
+        </div>
+    </div>
+</div>
+
+<!-- KOKTEYL ÜRETİCİ - TAM SAYFA OVERLAY -->
+<div id="kokteylOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#1a0d1f;z-index:9000;flex-direction:column;overflow:hidden;box-sizing:border-box;">
+    <div style="background:linear-gradient(135deg,#3d1a4a,#26102e);padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:2px solid #9b59b6;flex-shrink:0;">
+        <button onclick="closeKokteylUretici()" style="background:rgba(155,89,182,0.15);border:1px solid rgba(155,89,182,0.3);color:#9b59b6;padding:8px 12px;border-radius:10px;font-size:12px;cursor:pointer;"><i class="fas fa-arrow-left"></i></button>
+        <div>
+            <div style="font-size:15px;font-weight:bold;color:#9b59b6;">🍹 Bira Kokteyl Üretici</div>
+            <div style="font-size:9px;color:#a4b0be;margin-top:1px;">Elindeki biralardan yeni karışımlar keşfet</div>
+        </div>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:16px;">
+        <div style="font-size:11px;color:#a4b0be;margin-bottom:12px;line-height:1.5;">Stoktaki en az 2 farklı bira olması lazım. Aşağıdan iki bira seç, kokteyl önerisi görelim!</div>
+
+        <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;">
+            <select id="kokteylBira1" style="flex:1;padding:10px;background:rgba(0,0,0,0.3);border:1px solid #3d4852;border-radius:8px;color:white;font-size:12px;"></select>
+            <div style="font-size:18px;color:#9b59b6;">+</div>
+            <select id="kokteylBira2" style="flex:1;padding:10px;background:rgba(0,0,0,0.3);border:1px solid #3d4852;border-radius:8px;color:white;font-size:12px;"></select>
+        </div>
+
+        <button onclick="generateKokteyl()" style="width:100%;background:linear-gradient(135deg,#8e44ad,#6c3483);color:white;border:none;padding:14px;border-radius:12px;font-size:13px;font-weight:bold;cursor:pointer;margin-bottom:16px;">🍹 Kokteyl Öner</button>
+
+        <div id="kokteylResult"></div>
+
+        <div style="margin-top:20px;">
+            <div style="font-size:10px;font-weight:bold;color:#9b59b6;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">📖 Klasik Bira Kokteylleri</div>
+            <div id="kokteylKlasikler"></div>
+        </div>
+    </div>
+</div>
+
+
+<!-- USTALIK YOLCULUĞU - TAM SAYFA OVERLAY -->
+<div id="ustalikOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#12181f;z-index:9000;flex-direction:column;overflow:hidden;box-sizing:border-box;">
+    <div style="background:linear-gradient(135deg,#2d1b00,#1a0f00);padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:2px solid #f39c12;flex-shrink:0;">
+        <button onclick="closeUstalikOverlay()" style="background:rgba(243,156,18,0.15);border:1px solid rgba(243,156,18,0.3);color:#f39c12;padding:8px 12px;border-radius:10px;font-size:12px;cursor:pointer;"><i class="fas fa-arrow-left"></i></button>
+        <div>
+            <div style="font-size:15px;font-weight:bold;color:#f39c12;">🏅 Ustalık Yolculuğu</div>
+            <div style="font-size:9px;color:#a4b0be;margin-top:1px;">Bira yapım seviyende neredesin?</div>
+        </div>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:20px 16px 60px;">
+        <div id="ustalikCurrentBadge" style="text-align:center;margin-bottom:24px;">
+            <div id="ustalikCurrentEmoji" style="font-size:56px;margin-bottom:8px;">🌱</div>
+            <div id="ustalikCurrentTitle" style="font-size:22px;font-weight:bold;color:#f39c12;">Çırak</div>
+            <div id="ustalikCurrentLiters" style="font-size:12px;color:#a4b0be;margin-top:4px;">0 Litre Üretim</div>
+        </div>
+
+        <div id="ustalikJourney"></div>
+
+        <div id="ustalikNextInfo" style="margin-top:20px;background:rgba(243,156,18,0.08);border:1px solid rgba(243,156,18,0.25);border-radius:14px;padding:16px;text-align:center;">
+            <div style="font-size:10px;color:#f39c12;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Sonraki Seviyeye</div>
+            <div id="ustalikNextText" style="font-size:14px;color:#fff;font-weight:bold;"></div>
+        </div>
+    </div>
+</div>
+
+
 <!-- DÜNYA BİRA HARİTASI - TAM SAYFA OVERLAY -->
 <div id="haritaOverlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:#0a1628;z-index:9000;flex-direction:column;overflow:hidden;box-sizing:border-box;">
     <!-- HEADER -->
@@ -1293,7 +1684,7 @@
         kitName: {
             title: '🍺 Bira Kiti Seç',
             opts: ['Pilsner', 'Pilsner Klasik', 'Premium Pilsner', 'Export', 'Lager', 'Munich Lager', 'Blonde Ale', 'Ruby Ale', 'Summer Ale', 'Yorkshire', 'Yorkshire Bitter', 'Belgian Strong Ale', 'English IPA', 'American IPA', 'New England IPA', 'Session IPA', 'Wheat', 'Belgian Wit', 'Hefeweizen', 'Stout', 'Irish Stout', 'Milk Stout', 'Oatmeal Stout', 'Imperial Stout', 'Dark Ale', 'Bock', 'Doppelbock', 'Cider', 'Dry Cider', 'Sweet Cider'],
-            custom: false, lbl: f => f, after: () => calcEstAbv()
+            custom: false, lbl: f => f, after: () => { calcEstAbv(); updateGlassRecommendation(chipValues.kitName); }
         },
         yeastType: {
             title: '🧫 Maya Seç',
@@ -1681,40 +2072,66 @@
     let currentCatFilter = 'Tümü';
     let currentSearchTerm = '';
 
-    // ========== GENİŞLETİLMİŞ PAZAR REÇETELERİ (25 ADET) ==========
+    // ========== GENİŞLETİLMİŞ PAZAR REÇETELERİ (50 ADET) ==========
     const marketRecipes = [
         // IPA
-        { id: 101, name: "American IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.8, dls: 142, liters: 21, sugarT: "DME (Kuru Malt)", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "US-05", hopT: "Citra & Cascade", hopGram: "25", temp: 19, fT: 14, sT: 14, og: 1.055, notes: "Harika narenciye ve cam aroma, tam Amerikan klasigi! Citra ve Cascade hopun tropikal aromanin mukemmel dengesi." },
-        { id: 107, name: "English IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.6, dls: 134, liters: 23, sugarT: "Toz Seker", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "S-04", hopT: "Fuggles & EKG", hopGram: "20", temp: 20, fT: 12, sT: 10, og: 1.055, notes: "Geleneksel Ingiliz IPA. EKG ve Fuggles hopun topraksi-ciceksi aromasi ile autantik pub deneyimi!" },
-        { id: 108, name: "New England IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.9, dls: 267, liters: 21, sugarT: "DME (Kuru Malt)", kSugar: "0.3", lMaltT: "Bugday", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "London Ale III", hopT: "Mosaic, Galaxy, Citra", hopGram: "40", temp: 19, fT: 14, sT: 14, og: 1.060, notes: "Sutlu hazy NEIPA. Mosaic+Galaxy+Citra uclusu mango, seftali ve ananas patlamasi. Dry hop mutlaka!" },
-        { id: 121, name: "Session IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.5, dls: 167, liters: 23, sugarT: "Dekstroz", kSugar: "0.3", lMaltT: "Açık Renk", lMaltA: "0.5", maltType: "Sivi Malt", yeast: "US-05", hopT: "Citra & Amarillo", hopGram: "20", temp: 19, fT: 10, sT: 7, og: 1.038, notes: "Dusuk alkol, yuksek hop aromali session IPA. Citra+Amarillo tropik bomba!" },
+        { id: 101, name: "American IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.8, dls: 142, liters: 21, sugarT: "DME (Kuru Malt)", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "US-05", hopT: "Citra & Cascade", hopGram: "25", temp: 19, fT: 14, sT: 14, og: 1.063, notes: "Harika narenciye ve cam aroma, tam Amerikan klasigi! Citra ve Cascade hopun tropikal aromanin mukemmel dengesi." },
+        { id: 107, name: "English IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.6, dls: 134, liters: 23, sugarT: "Toz Seker", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "S-04", hopT: "Fuggles & EKG", hopGram: "20", temp: 20, fT: 12, sT: 10, og: 1.062, notes: "Geleneksel Ingiliz IPA. EKG ve Fuggles hopun topraksi-ciceksi aromasi ile autantik pub deneyimi!" },
+        { id: 108, name: "New England IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.9, dls: 267, liters: 21, sugarT: "DME (Kuru Malt)", kSugar: "0.3", lMaltT: "Bugday", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "London Ale III", hopT: "Mosaic, Galaxy, Citra", hopGram: "40", temp: 19, fT: 14, sT: 14, og: 1.06, notes: "Sutlu hazy NEIPA. Mosaic+Galaxy+Citra uclusu mango, seftali ve ananas patlamasi. Dry hop mutlaka!" },
+        { id: 121, name: "Session IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.5, dls: 167, liters: 23, sugarT: "Dekstroz", kSugar: "0.3", lMaltT: "Açık Renk", lMaltA: "0.5", maltType: "Sivi Malt", yeast: "US-05", hopT: "Citra & Amarillo", hopGram: "20", temp: 19, fT: 10, sT: 7, og: 1.044, notes: "Dusuk alkol, yuksek hop aromali session IPA. Citra+Amarillo tropik bomba!" },
         // Lager
-        { id: 104, name: "Pilsner Klasik", cat: "Lager", master: "Usta Bullemann", rating: 4.4, dls: 201, liters: 23, sugarT: "Dekstroz", kSugar: "0.8", lMaltT: "Yok", lMaltA: "0", maltType: "Yok", yeast: "W-34/70", hopT: "Saaz", hopGram: "15", temp: 12, fT: 21, sT: 14, og: 1.042, notes: "Cek tarzi Pilsner. Saaz ile otumsu-ciceksi burukluk. Soguk fermantasyon sart kanki!" },
-        { id: 105, name: "Premium Pilsner", cat: "Lager", master: "Usta Bullemann", rating: 4.7, dls: 178, liters: 23, sugarT: "DME (Kuru Malt)", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "Saflager W-34/70", hopT: "Hallertau", hopGram: "15", temp: 10, fT: 21, sT: 21, og: 1.050, notes: "Alman Premium Pilsner. Hallertau ile zarif burukluk, zengin kopuk, kristal berraklik. Gercek ustalik isi!" },
-        { id: 106, name: "Munich Lager", cat: "Lager", master: "Usta Bullemann", rating: 4.5, dls: 95, liters: 23, sugarT: "Yok", kSugar: "0", lMaltT: "Orta Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "W-34/70", hopT: "Tettnang", hopGram: "12", temp: 12, fT: 18, sT: 14, og: 1.048, notes: "Munih tarzi amber lager. Hafif karamel notlari ve temiz malt zemini. Oktoberfest ruhu!" },
+        { id: 104, name: "Pilsner Klasik", cat: "Lager", master: "Usta Bullemann", rating: 4.4, dls: 201, liters: 23, sugarT: "Dekstroz", kSugar: "0.8", lMaltT: "Yok", lMaltA: "0", maltType: "Yok", yeast: "W-34/70", hopT: "Saaz", hopGram: "15", temp: 12, fT: 21, sT: 14, og: 1.05, notes: "Cek tarzi Pilsner. Saaz ile otumsu-ciceksi burukluk. Soguk fermantasyon sart kanki!" },
+        { id: 105, name: "Premium Pilsner", cat: "Lager", master: "Usta Bullemann", rating: 4.7, dls: 178, liters: 23, sugarT: "DME (Kuru Malt)", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "Saflager W-34/70", hopT: "Hallertau", hopGram: "15", temp: 10, fT: 21, sT: 21, og: 1.052, notes: "Alman Premium Pilsner. Hallertau ile zarif burukluk, zengin kopuk, kristal berraklik. Gercek ustalik isi!" },
+        { id: 106, name: "Munich Lager", cat: "Lager", master: "Usta Bullemann", rating: 4.5, dls: 95, liters: 23, sugarT: "Yok", kSugar: "0", lMaltT: "Orta Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "W-34/70", hopT: "Tettnang", hopGram: "12", temp: 12, fT: 18, sT: 14, og: 1.052, notes: "Munih tarzi amber lager. Hafif karamel notlari ve temiz malt zemini. Oktoberfest ruhu!" },
         // Ale
-        { id: 109, name: "Ruby Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.4, dls: 76, liters: 23, sugarT: "Toz Seker", kSugar: "0.8", lMaltT: "Orta Renk", lMaltA: "1.2", maltType: "Sivi Malt", yeast: "S-04", hopT: "Goldings", hopGram: "15", temp: 20, fT: 12, sT: 10, og: 1.048, notes: "Kizil renkli, karamel ve biskuvi karakterli Ingiliz tarzi ale. Aksam kanepesinin en iyi dostu." },
+        { id: 109, name: "Ruby Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.4, dls: 76, liters: 23, sugarT: "Toz Seker", kSugar: "0.8", lMaltT: "Orta Renk", lMaltA: "1.2", maltType: "Sivi Malt", yeast: "S-04", hopT: "Goldings", hopGram: "15", temp: 20, fT: 12, sT: 10, og: 1.05, notes: "Kizil renkli, karamel ve biskuvi karakterli Ingiliz tarzi ale. Aksam kanepesinin en iyi dostu." },
         { id: 111, name: "Yorkshire Bitter", cat: "Ale", master: "Usta Bullemann", rating: 4.3, dls: 58, liters: 23, sugarT: "Toz Seker", kSugar: "0.5", lMaltT: "Orta Renk", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "S-04", hopT: "Fuggles", hopGram: "12", temp: 20, fT: 10, sT: 7, og: 1.042, notes: "Gercek Ingiliz pub birasi. Kremamsi kopugu ve topraksi hop karakteriyle Yorkshire ruhu." },
-        { id: 112, name: "Summer Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.5, dls: 188, liters: 23, sugarT: "Dekstroz", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "0.5", maltType: "Sivi Malt", yeast: "US-05", hopT: "Centennial", hopGram: "15", temp: 20, fT: 10, sT: 7, og: 1.042, notes: "Antalya yazina jilet gibi giden hafif ve ferah summer ale. Centennial hop narenciyeli!" },
-        { id: 122, name: "Blonde Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.3, dls: 143, liters: 23, sugarT: "Dekstroz", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "0.8", maltType: "Sivi Malt", yeast: "US-05", hopT: "Centennial", hopGram: "12", temp: 20, fT: 10, sT: 7, og: 1.044, notes: "Acik renkli, hafif govdeli kolay icimli Blonde Ale. Yeni baslayanlar icin harika ilk bira!" },
-        { id: 125, name: "Belgian Strong Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.8, dls: 88, liters: 23, sugarT: "Toz Seker", kSugar: "1.5", lMaltT: "Açık Renk", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "Safbrew T-58", hopT: "Saaz", hopGram: "10", temp: 24, fT: 14, sT: 21, og: 1.075, notes: "Belcika manastir gelenegi. T-58 mayasinin egzotik baharat ve meyve aromatikleri." },
+        { id: 112, name: "Summer Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.5, dls: 188, liters: 23, sugarT: "Dekstroz", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "0.5", maltType: "Sivi Malt", yeast: "US-05", hopT: "Centennial", hopGram: "15", temp: 20, fT: 10, sT: 7, og: 1.047, notes: "Antalya yazina jilet gibi giden hafif ve ferah summer ale. Centennial hop narenciyeli!" },
+        { id: 122, name: "Blonde Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.3, dls: 143, liters: 23, sugarT: "Dekstroz", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "0.8", maltType: "Sivi Malt", yeast: "US-05", hopT: "Centennial", hopGram: "12", temp: 20, fT: 10, sT: 7, og: 1.052, notes: "Acik renkli, hafif govdeli kolay icimli Blonde Ale. Yeni baslayanlar icin harika ilk bira!" },
+        { id: 125, name: "Belgian Strong Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.8, dls: 88, liters: 23, sugarT: "Toz Seker", kSugar: "1.5", lMaltT: "Açık Renk", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "Safbrew T-58", hopT: "Saaz", hopGram: "10", temp: 24, fT: 14, sT: 21, og: 1.081, notes: "Belcika manastir gelenegi. T-58 mayasinin egzotik baharat ve meyve aromatikleri." },
         // Buğday
         { id: 103, name: "Wheat", cat: "Bugday", master: "Usta Bullemann", rating: 4.6, dls: 89, liters: 23, sugarT: "Yok", kSugar: "0", lMaltT: "Bugday", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "WB-06", hopT: "Yok", hopGram: "0", temp: 22, fT: 12, sT: 7, og: 1.048, notes: "Muz ve karanfil kokulu ferahlik. WB-06 mayasinin Alman bugday karakteri esssiz." },
         { id: 110, name: "Belgian Wit", cat: "Bugday", master: "Usta Bullemann", rating: 4.7, dls: 112, liters: 23, sugarT: "Yok", kSugar: "0", lMaltT: "Bugday", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "WB-06", hopT: "Saaz", hopGram: "10", temp: 22, fT: 12, sT: 7, og: 1.048, notes: "Portakal kabugu ve kisnis ile tatlandirılmis Belcika Wit. Siselerken portakal kabugu ekle!" },
-        { id: 123, name: "Hefeweizen", cat: "Bugday", master: "Usta Bullemann", rating: 4.7, dls: 156, liters: 23, sugarT: "Yok", kSugar: "0", lMaltT: "Bugday", lMaltA: "2.0", maltType: "Sivi Malt", yeast: "WB-06", hopT: "Hallertau", hopGram: "10", temp: 18, fT: 10, sT: 7, og: 1.050, notes: "Alman tarzi bulanik bugday birasi. Muz esteri ve karanfil fenolu WB-06 imzasi. Sisenin dibini calkala!" },
+        { id: 123, name: "Hefeweizen", cat: "Bugday", master: "Usta Bullemann", rating: 4.7, dls: 156, liters: 23, sugarT: "Yok", kSugar: "0", lMaltT: "Bugday", lMaltA: "2.0", maltType: "Sivi Malt", yeast: "WB-06", hopT: "Hallertau", hopGram: "10", temp: 18, fT: 10, sT: 7, og: 1.048, notes: "Alman tarzi bulanik bugday birasi. Muz esteri ve karanfil fenolu WB-06 imzasi. Sisenin dibini calkala!" },
         // Koyu
-        { id: 102, name: "Stout", cat: "Koyu", master: "Usta Bullemann", rating: 5.0, dls: 310, liters: 23, sugarT: "Esmer Seker", kSugar: "1", lMaltT: "Koyu Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "S-04", hopT: "Goldings", hopGram: "20", temp: 20, fT: 15, sT: 21, og: 1.060, notes: "Kahve ve cikolata aromalarinin zirve yaptigi govdeli usta siyahi. Esmer seker derinlik katıyor, S-04 kremamsi karakter veriyor." },
-        { id: 113, name: "Irish Stout", cat: "Koyu", master: "Usta Bullemann", rating: 4.8, dls: 223, liters: 23, sugarT: "Esmer Seker", kSugar: "0.5", lMaltT: "Koyu Renk", lMaltA: "2.0", maltType: "Sivi Malt", yeast: "S-04", hopT: "Goldings", hopGram: "18", temp: 20, fT: 14, sT: 14, og: 1.058, notes: "Irlanda tarzi kuru stout. Esmer seker ile kavrulan arpa maltinin aci-kahve karakteri. Guinness'i aratmaz!" },
-        { id: 114, name: "Milk Stout", cat: "Koyu", master: "Usta Bullemann", rating: 4.7, dls: 145, liters: 23, sugarT: "Esmer Seker", kSugar: "1.0", lMaltT: "Koyu Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "S-04", hopT: "Fuggles", hopGram: "15", temp: 20, fT: 14, sT: 21, og: 1.062, notes: "Kremamsi milk stout. Esmer seker + koyu malt kombinasyonu cikolata ve kahve aromalarini kadife gibi birlestiriyor." },
-        { id: 115, name: "Dark Ale", cat: "Koyu", master: "Usta Bullemann", rating: 4.3, dls: 67, liters: 23, sugarT: "Toz Seker", kSugar: "0.8", lMaltT: "Koyu Renk", lMaltA: "1.2", maltType: "Sivi Malt", yeast: "S-04", hopT: "EKG", hopGram: "15", temp: 20, fT: 12, sT: 10, og: 1.052, notes: "Kavrulmus malt lezzeti ve koyu renkli govdeli ale. Sonbahar aksamlari icin bicilmis kaftan." },
+        { id: 102, name: "Stout", cat: "Koyu", master: "Usta Bullemann", rating: 5.0, dls: 310, liters: 23, sugarT: "Esmer Seker", kSugar: "1", lMaltT: "Koyu Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "S-04", hopT: "Goldings", hopGram: "20", temp: 20, fT: 15, sT: 21, og: 1.062, notes: "Kahve ve cikolata aromalarinin zirve yaptigi govdeli usta siyahi. Esmer seker derinlik katıyor, S-04 kremamsi karakter veriyor." },
+        { id: 113, name: "Irish Stout", cat: "Koyu", master: "Usta Bullemann", rating: 4.8, dls: 223, liters: 23, sugarT: "Esmer Seker", kSugar: "0.5", lMaltT: "Koyu Renk", lMaltA: "2.0", maltType: "Sivi Malt", yeast: "S-04", hopT: "Goldings", hopGram: "18", temp: 20, fT: 14, sT: 14, og: 1.043, notes: "Irlanda tarzi kuru stout. Esmer seker ile kavrulan arpa maltinin aci-kahve karakteri. Guinness'i aratmaz!" },
+        { id: 114, name: "Milk Stout", cat: "Koyu", master: "Usta Bullemann", rating: 4.7, dls: 145, liters: 23, sugarT: "Esmer Seker", kSugar: "1.0", lMaltT: "Koyu Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "S-04", hopT: "Fuggles", hopGram: "15", temp: 20, fT: 14, sT: 21, og: 1.05, notes: "Kremamsi milk stout. Esmer seker + koyu malt kombinasyonu cikolata ve kahve aromalarini kadife gibi birlestiriyor." },
+        { id: 115, name: "Dark Ale", cat: "Koyu", master: "Usta Bullemann", rating: 4.3, dls: 67, liters: 23, sugarT: "Toz Seker", kSugar: "0.8", lMaltT: "Koyu Renk", lMaltA: "1.2", maltType: "Sivi Malt", yeast: "S-04", hopT: "EKG", hopGram: "15", temp: 20, fT: 12, sT: 10, og: 1.05, notes: "Kavrulmus malt lezzeti ve koyu renkli govdeli ale. Sonbahar aksamlari icin bicilmis kaftan." },
         { id: 116, name: "Oatmeal Stout", cat: "Koyu", master: "Usta Bullemann", rating: 4.6, dls: 89, liters: 23, sugarT: "Esmer Seker", kSugar: "0", lMaltT: "Koyu Renk", lMaltA: "2.0", maltType: "Sivi Malt", yeast: "S-04", hopT: "Northern Brewer", hopGram: "18", temp: 20, fT: 15, sT: 21, og: 1.060, notes: "Yulaf ilaveli kremamsi stout. Esmer seker yok ama yulaf maltin verdigi ipeksi govde kahve-cikolata aromalarini tamamliyor." },
         { id: 124, name: "Imperial Stout", cat: "Koyu", master: "Usta Bullemann", rating: 4.9, dls: 201, liters: 21, sugarT: "Esmer Seker", kSugar: "1.0", lMaltT: "Koyu Renk", lMaltA: "2.5", maltType: "Sivi Malt", yeast: "S-04", hopT: "Northern Brewer", hopGram: "25", temp: 20, fT: 21, sT: 42, og: 1.090, notes: "Canavar guc %10+ ABV! Esmer seker + Imperial malt kombinasyonu. 6 hafta sised beklersen viski rakibi derinlik kazaniyor!" },
         // Bock
         { id: 117, name: "Bock", cat: "Bock", master: "Usta Bullemann", rating: 4.6, dls: 78, liters: 23, sugarT: "Esmer Seker", kSugar: "0.5", lMaltT: "Koyu Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "W-34/70", hopT: "Hallertau", hopGram: "15", temp: 12, fT: 21, sT: 28, og: 1.068, notes: "Guclu Alman Bock. Esmer seker karamel ve ekmek aromalarini derinlestiriyor. Uzun olgunlasma sabreder!" },
         { id: 118, name: "Doppelbock", cat: "Bock", master: "Usta Bullemann", rating: 4.8, dls: 56, liters: 21, sugarT: "Esmer Seker", kSugar: "0.5", lMaltT: "Koyu Renk", lMaltA: "2.0", maltType: "Sivi Malt", yeast: "W-34/70", hopT: "Hallertau", hopGram: "12", temp: 10, fT: 28, sT: 42, og: 1.074, notes: "Alman manastir geleneginin en guclu eseri. Esmer seker ile %7+ ABV, zengin karamel-kuru uzum aromali." },
         // Cider
-        { id: 119, name: "Dry Cider", cat: "Cider", master: "Usta Bullemann", rating: 4.5, dls: 134, liters: 23, sugarT: "Dekstroz", kSugar: "0.3", lMaltT: "Yok", lMaltA: "0", maltType: "Yok", yeast: "Cider Yeast", hopT: "Yok", hopGram: "0", temp: 18, fT: 14, sT: 14, og: 1.045, notes: "Dogal elma suyu bazli sek elma birasi. Ferah ve meyveli, bira icemeyenlerin de bayildigi tarif!" },
-        { id: 120, name: "Sweet Cider", cat: "Cider", master: "Usta Bullemann", rating: 4.4, dls: 98, liters: 23, sugarT: "Toz Seker", kSugar: "0.5", lMaltT: "Yok", lMaltA: "0", maltType: "Yok", yeast: "Cider Yeast", hopT: "Yok", hopGram: "0", temp: 18, fT: 10, sT: 7, og: 1.050, notes: "Tatli elma cider. Fermantasyonu erken durdur, dogal tatlilik icin. Elma bahcesi esintisi!" }
+        { id: 119, name: "Dry Cider", cat: "Cider", master: "Usta Bullemann", rating: 4.5, dls: 134, liters: 23, sugarT: "Dekstroz", kSugar: "0.3", lMaltT: "Yok", lMaltA: "0", maltType: "Yok", yeast: "Cider Yeast", hopT: "Yok", hopGram: "0", temp: 18, fT: 14, sT: 14, og: 1.052, notes: "Dogal elma suyu bazli sek elma birasi. Ferah ve meyveli, bira icemeyenlerin de bayildigi tarif!" },
+        { id: 120, name: "Sweet Cider", cat: "Cider", master: "Usta Bullemann", rating: 4.4, dls: 98, liters: 23, sugarT: "Toz Seker", kSugar: "0.5", lMaltT: "Yok", lMaltA: "0", maltType: "Yok", yeast: "Cider Yeast", hopT: "Yok", hopGram: "0", temp: 18, fT: 10, sT: 7, og: 1.055, notes: "Tatli elma cider. Fermantasyonu erken durdur, dogal tatlilik icin. Elma bahcesi esintisi!" },
+        { id: 201, name: "Rye IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.6, dls: 178, liters: 21, sugarT: "DME (Kuru Malt)", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "1.3", maltType: "Sivi Malt", yeast: "US-05", hopT: "Simcoe & Amarillo", hopGram: "28", temp: 19, fT: 14, sT: 14, og: 1.065, notes: "Cavdar maltinin baharatli karakteri hop aromasiyla mukemmel birlesim. Farkli ve karakterli bir IPA deneyimi." },
+        { id: 202, name: "Black IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.5, dls: 156, liters: 21, sugarT: "DME (Kuru Malt)", kSugar: "0.5", lMaltT: "Koyu Renk", lMaltA: "1.2", maltType: "Sivi Malt", yeast: "US-05", hopT: "Citra & Chinook", hopGram: "30", temp: 19, fT: 14, sT: 14, og: 1.065, notes: "Cascadian Dark Ale olarak da bilinir. Koyu renk ile hop patlamasinin sasirtici birlesimi!" },
+        { id: 203, name: "Double IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.7, dls: 203, liters: 20, sugarT: "DME (Kuru Malt)", kSugar: "0.8", lMaltT: "Açık Renk", lMaltA: "2.0", maltType: "Sivi Malt", yeast: "US-05", hopT: "Mosaic & Simcoe", hopGram: "45", temp: 19, fT: 18, sT: 21, og: 1.075, notes: "Yuksek alkol, yuksek hop! DIPA severler icin guclu ve aromatik bir sölen." },
+        { id: 204, name: "Brut IPA", cat: "IPA", master: "Usta Bullemann", rating: 4.3, dls: 89, liters: 21, sugarT: "Dekstroz", kSugar: "0.3", lMaltT: "Açık Renk", lMaltA: "0.8", maltType: "Sivi Malt", yeast: "US-05", hopT: "Citra & Nelson Sauvin", hopGram: "25", temp: 19, fT: 14, sT: 10, og: 1.047, notes: "Sampanya gibi kuru bitis! Enzim kullanimiyla neredeyse hic seker kalmiyor, cok hafif ve gazli." },
+        { id: 205, name: "Baltic Porter", cat: "Koyu", master: "Usta Bullemann", rating: 4.7, dls: 145, liters: 21, sugarT: "Esmer Seker", kSugar: "0.8", lMaltT: "Koyu Renk", lMaltA: "2.2", maltType: "Sivi Malt", yeast: "W-34/70", hopT: "Hallertau", hopGram: "18", temp: 12, fT: 21, sT: 28, og: 1.075, notes: "Sogukta fermente guclu Baltık stili. Karamel-erik notalari ile derin ve dogurucu." },
+        { id: 206, name: "Robust Porter", cat: "Koyu", master: "Usta Bullemann", rating: 4.5, dls: 112, liters: 23, sugarT: "Esmer Seker", kSugar: "0.5", lMaltT: "Koyu Renk", lMaltA: "1.8", maltType: "Sivi Malt", yeast: "S-04", hopT: "EKG", hopGram: "15", temp: 20, fT: 14, sT: 14, og: 1.057, notes: "Kahve ve cikolata notalari belirgin ama Stout kadar agir degil. Dengeli koyu bira." },
+        { id: 207, name: "Chocolate Stout", cat: "Koyu", master: "Usta Bullemann", rating: 4.8, dls: 234, liters: 21, sugarT: "Esmer Seker", kSugar: "1.2", lMaltT: "Koyu Renk", lMaltA: "2.0", maltType: "Sivi Malt", yeast: "S-04", hopT: "Fuggles", hopGram: "15", temp: 20, fT: 15, sT: 21, og: 1.062, notes: "Gercek cikolata gibi! Esmer sekerin derinligi kakao notalarini mukemmel tamamliyor." },
+        { id: 208, name: "Scottish Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.4, dls: 78, liters: 23, sugarT: "Toz Seker", kSugar: "0.8", lMaltT: "Orta Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "S-04", hopT: "Goldings", hopGram: "10", temp: 18, fT: 12, sT: 10, og: 1.035, notes: "İskocya'nin soguk iklimine uygun malt agirlikli, dusuk hop. Karamel ve tost notalari." },
+        { id: 209, name: "Irish Red Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.5, dls: 134, liters: 23, sugarT: "Toz Seker", kSugar: "0.6", lMaltT: "Orta Renk", lMaltA: "1.3", maltType: "Sivi Malt", yeast: "S-04", hopT: "EKG", hopGram: "12", temp: 19, fT: 12, sT: 10, og: 1.041, notes: "Kizil-kehribar rengi ve hafif karamel tatlığı. Irlanda pub kulturunun klasigi." },
+        { id: 210, name: "Amber Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.3, dls: 98, liters: 23, sugarT: "Dekstroz", kSugar: "0.5", lMaltT: "Orta Renk", lMaltA: "1.4", maltType: "Sivi Malt", yeast: "US-05", hopT: "Cascade", hopGram: "18", temp: 19, fT: 12, sT: 10, og: 1.05, notes: "Malt ve hop dengesi mukemmel. Amerikan tarzi amber, her ana uygun." },
+        { id: 211, name: "Brown Ale", cat: "Ale", master: "Usta Bullemann", rating: 4.4, dls: 87, liters: 23, sugarT: "Toz Seker", kSugar: "0.6", lMaltT: "Koyu Renk", lMaltA: "1.6", maltType: "Sivi Malt", yeast: "S-04", hopT: "EKG", hopGram: "14", temp: 19, fT: 12, sT: 10, og: 1.05, notes: "Findik ve karamel notalari one cikar. İngiliz pub'larinin sevilen klasigi." },
+        { id: 212, name: "Barleywine", cat: "Koyu", master: "Usta Bullemann", rating: 4.9, dls: 167, liters: 19, sugarT: "Esmer Seker", kSugar: "1.5", lMaltT: "Koyu Renk", lMaltA: "3.0", maltType: "Sivi Malt", yeast: "S-04", hopT: "EKG & Goldings", hopGram: "20", temp: 20, fT: 21, sT: 42, og: 1.1, notes: "Sarap gucunde bira! %10+ ABV, uzun olgunlasma gerektirir ama sonucu muhtesem." },
+        { id: 213, name: "Saison", cat: "Ale", master: "Usta Bullemann", rating: 4.6, dls: 145, liters: 21, sugarT: "Toz Seker", kSugar: "0.8", lMaltT: "Açık Renk", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "Safbrew T-58", hopT: "Saaz", hopGram: "12", temp: 24, fT: 14, sT: 14, og: 1.056, notes: "Belcika ciftlik birasi. Baharat ve meyve esterleri, yuksek sicaklikta fermente edilir." },
+        { id: 214, name: "Dubbel", cat: "Ale", master: "Usta Bullemann", rating: 4.7, dls: 123, liters: 21, sugarT: "Esmer Seker", kSugar: "1.0", lMaltT: "Koyu Renk", lMaltA: "1.8", maltType: "Sivi Malt", yeast: "BE-256", hopT: "Saaz", hopGram: "10", temp: 22, fT: 14, sT: 21, og: 1.06, notes: "Belcika manastir gelenegi. Kuru uzum ve karamel notalari, orta guclu." },
+        { id: 215, name: "Tripel", cat: "Ale", master: "Usta Bullemann", rating: 4.8, dls: 156, liters: 21, sugarT: "Toz Seker", kSugar: "1.2", lMaltT: "Açık Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "BE-256", hopT: "Saaz", hopGram: "14", temp: 22, fT: 14, sT: 28, og: 1.08, notes: "Belcika Tripel'i altın renk, yuksek alkol, karmasik ester profili. Ustalik gerektirir!" },
+        { id: 216, name: "Quadrupel", cat: "Koyu", master: "Usta Bullemann", rating: 4.9, dls: 98, liters: 19, sugarT: "Esmer Seker", kSugar: "1.8", lMaltT: "Koyu Renk", lMaltA: "2.5", maltType: "Sivi Malt", yeast: "BE-256", hopT: "Saaz", hopGram: "10", temp: 22, fT: 21, sT: 42, og: 1.081, notes: "Trappist gelenekleri zirvesi. Koyu meyve, karamel, likor notalari. Yillanabilir!" },
+        { id: 217, name: "Kolsch", cat: "Lager", master: "Usta Bullemann", rating: 4.5, dls: 167, liters: 23, sugarT: "Dekstroz", kSugar: "0.5", lMaltT: "Açık Renk", lMaltA: "0.8", maltType: "Sivi Malt", yeast: "US-05", hopT: "Hallertau", hopGram: "12", temp: 16, fT: 14, sT: 14, og: 1.047, notes: "Koln'un ozel birasi. Ale mayasi ile lager gibi soguk fermente edilir, cok temiz profil." },
+        { id: 218, name: "Vienna Lager", cat: "Lager", master: "Usta Bullemann", rating: 4.6, dls: 134, liters: 23, sugarT: "Dekstroz", kSugar: "0.6", lMaltT: "Orta Renk", lMaltA: "1.2", maltType: "Sivi Malt", yeast: "W-34/70", hopT: "Saaz", hopGram: "13", temp: 12, fT: 21, sT: 14, og: 1.049, notes: "Amber renkli klasik Avusturya lageri. Malt agirlikli, zarif ve dengeli." },
+        { id: 219, name: "Schwarzbier", cat: "Lager", master: "Usta Bullemann", rating: 4.5, dls: 89, liters: 23, sugarT: "Dekstroz", kSugar: "0.4", lMaltT: "Koyu Renk", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "W-34/70", hopT: "Hallertau", hopGram: "12", temp: 12, fT: 21, sT: 14, og: 1.049, notes: "Alman siyah lageri. Stout gibi gorunur ama lager kadar hafif ve icimliktir." },
+        { id: 220, name: "Marzen", cat: "Lager", master: "Usta Bullemann", rating: 4.7, dls: 178, liters: 23, sugarT: "Dekstroz", kSugar: "0.5", lMaltT: "Orta Renk", lMaltA: "1.4", maltType: "Sivi Malt", yeast: "W-34/70", hopT: "Hallertau", hopGram: "14", temp: 12, fT: 21, sT: 21, og: 1.057, notes: "Oktoberfest'in resmi birasi! Malt agirlikli, amber renk, festival ruhu." },
+        { id: 221, name: "American Wheat", cat: "Bugday", master: "Usta Bullemann", rating: 4.3, dls: 112, liters: 23, sugarT: "Dekstroz", kSugar: "0.4", lMaltT: "Bugday", lMaltA: "1.6", maltType: "Sivi Malt", yeast: "US-05", hopT: "Cascade", hopGram: "12", temp: 19, fT: 10, sT: 7, og: 1.047, notes: "Alman bugday biralarindan farkli - temiz maya profili, hafif narenciye hop notasi." },
+        { id: 222, name: "Berliner Weisse", cat: "Bugday", master: "Usta Bullemann", rating: 4.2, dls: 67, liters: 21, sugarT: "Yok", kSugar: "0", lMaltT: "Bugday", lMaltA: "1.2", maltType: "Sivi Malt", yeast: "WB-06", hopT: "Yok", hopGram: "0", temp: 20, fT: 10, sT: 7, og: 1.031, notes: "Ekşi Alman bugday birasi. Laktik asit bakterisi kullanilir, cok hafif ve ferah - sirop ile servis edilir!" },
+        { id: 223, name: "Gose", cat: "Bugday", master: "Usta Bullemann", rating: 4.4, dls: 89, liters: 21, sugarT: "Yok", kSugar: "0", lMaltT: "Bugday", lMaltA: "1.0", maltType: "Sivi Malt", yeast: "WB-06", hopT: "Yok", hopGram: "0", temp: 20, fT: 10, sT: 7, og: 1.046, notes: "Tuz ve kisnis ile tatlandirilmis ekşi bugday birasi. Almanya'nin unutulmus mucizesi!" },
+        { id: 224, name: "Witbier Klasik", cat: "Bugday", master: "Usta Bullemann", rating: 4.6, dls: 145, liters: 23, sugarT: "Yok", kSugar: "0", lMaltT: "Bugday", lMaltA: "1.5", maltType: "Sivi Malt", yeast: "WB-06", hopT: "Saaz", hopGram: "10", temp: 20, fT: 12, sT: 7, og: 1.048, notes: "Portakal kabugu ve kisnis tohumu ile Belcika gelenegi. Bulanik, ferah, ferahlatici." },
+        { id: 225, name: "Honey Wheat", cat: "Bugday", master: "Usta Bullemann", rating: 4.5, dls: 134, liters: 23, sugarT: "Bal", kSugar: "0.5", lMaltT: "Bugday", lMaltA: "1.4", maltType: "Sivi Malt", yeast: "US-05", hopT: "Cascade", hopGram: "10", temp: 19, fT: 10, sT: 7, og: 1.048, notes: "Bal ile tatlandirilmis bugday birasi. Hafif tatli, cok icimlik ve rahatlatici." }
+
     ];
 
     const catColors = {
@@ -1777,6 +2194,8 @@
 
         const countEl = document.getElementById('marketResultCount');
         if (countEl) countEl.textContent = `${filtered.length} reçete gösteriliyor`;
+        const totalCountEl = document.getElementById('marketTotalCount');
+        if (totalCountEl) totalCountEl.textContent = marketRecipes.length;
 
         if (filtered.length === 0) {
             marketList.innerHTML = `<div class="market-empty"><i class="fas fa-search"></i>Arama sonucu bulunamadı.<br><small>Farklı bir kelime veya kategori dene kanki!</small></div>`;
@@ -1828,7 +2247,7 @@
                     <span class="ing-label">MALT:</span> ${r.lMaltA} kg ${r.lMaltT}<br>
                     <span class="ing-label">KOVA:</span> ${r.fT} Gün &nbsp;|&nbsp; 
                     <span class="ing-label">ŞİŞE:</span> ${r.sT} Gün &nbsp;|&nbsp; 
-                    <span class="ing-label">OG:</span> ${r.og}
+                    <span class="ing-label">OG:</span> ${r.og} <span style="font-size:8px;color:#636e72;">(BJCP referans)</span>
                 </div>
 
                 <div class="market-notes">"${r.notes}"</div>
@@ -1903,6 +2322,18 @@
         const current = target.style.display;
         document.querySelectorAll('.side-guide-box').forEach(b => b.style.display = 'none');
         target.style.display = current === 'block' ? 'none' : 'block';
+        if (id === 'guideRecipeScore' && target.style.display === 'block') {
+            renderRecipeScores();
+        }
+        if (id === 'guideStokTakip' && target.style.display === 'block') {
+            renderStockItems();
+        }
+        if (id === 'guideReceteDefteri' && target.style.display === 'block') {
+            renderMyRecipes();
+        }
+        if (id === 'guideFotoGaleri' && target.style.display === 'block') {
+            renderGallery();
+        }
     }
 
     function updateKitNo() {
@@ -2194,10 +2625,7 @@
         if (!list) return;
         renderAlarmPanel();
 
-        const month = new Date().getMonth() + 1;
-        const isHot = (month >= 5 && month <= 9);
-        const antalyaWarn = document.getElementById('antalyaClimateWarning');
-        if (antalyaWarn) antalyaWarn.style.display = isHot ? 'block' : 'none';
+        updateWeatherWarning();
         
         let filteredBrews = [...brews].sort((a, b) => a.name.localeCompare(b.name));
         
@@ -3543,6 +3971,862 @@
     function closeHaritaOverlay() {
         var overlay = document.getElementById('haritaOverlay');
         if (overlay) overlay.style.display = 'none';
+    }
+
+
+    // ===== HAVA DURUMU ENTEGRASYONU (Open-Meteo, ucretsiz, API key gerekmez) =====
+    var weatherCache = { temp: null, city: null, ts: 0 };
+    var WEATHER_CACHE_MS = 30 * 60 * 1000; // 30 dakika cache
+
+    function updateWeatherWarning() {
+        var now = Date.now();
+        if (weatherCache.temp !== null && (now - weatherCache.ts) < WEATHER_CACHE_MS) {
+            applyWeatherWarning(weatherCache.temp, weatherCache.city);
+            return;
+        }
+
+        if (!navigator.geolocation) {
+            fallbackMonthWarning();
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            function(pos) {
+                var lat = pos.coords.latitude;
+                var lon = pos.coords.longitude;
+                fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&current=temperature_2m&timezone=auto')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.current && typeof data.current.temperature_2m === 'number') {
+                            var temp = Math.round(data.current.temperature_2m);
+                            weatherCache = { temp: temp, city: null, ts: Date.now() };
+                            applyWeatherWarning(temp, null);
+                        } else {
+                            fallbackMonthWarning();
+                        }
+                    })
+                    .catch(function() { fallbackMonthWarning(); });
+            },
+            function() { fallbackMonthWarning(); },
+            { timeout: 5000, maximumAge: 1800000 }
+        );
+    }
+
+    function applyWeatherWarning(temp, city) {
+        var warnBox = document.getElementById('antalyaClimateWarning');
+        var textEl = document.getElementById('weatherWarningText');
+        if (!warnBox || !textEl) return;
+
+        var msg = '';
+        var show = false;
+
+        if (temp >= 30) {
+            msg = 'SICAK HAVA UYARISI: Şu an ' + temp + '°C! Fermantasyon ısı kontrolüne dikkat et, Kveik maya (25-40°C dayanıklı) kullanmayı düşün.';
+            show = true;
+        } else if (temp >= 25) {
+            msg = 'Hava ' + temp + '°C. Ale mayaları için ideal ama Lager kuruyorsan soğutma önlemi al.';
+            show = true;
+        } else if (temp <= 10) {
+            msg = 'SOĞUK HAVA UYARISI: Şu an ' + temp + '°C! Mayanın uyanması yavaşlayabilir, ısıtma battaniyesi kullanmayı düşün.';
+            show = true;
+        } else {
+            show = false;
+        }
+
+        textEl.textContent = msg;
+        warnBox.style.display = show ? 'block' : 'none';
+    }
+
+    function fallbackMonthWarning() {
+        // Konum izni yoksa veya hata olursa eski ay bazli mantik
+        var month = new Date().getMonth() + 1;
+        var isHot = (month >= 5 && month <= 9);
+        var warnBox = document.getElementById('antalyaClimateWarning');
+        var textEl = document.getElementById('weatherWarningText');
+        if (warnBox && textEl) {
+            textEl.textContent = 'YAZ ALARMI: Sıcak aylardayız! (Konum izni verilmedi - genel tahmin) Fermantasyon ısı kontrolüne dikkat et veya Kveik maya kullanmayı düşün.';
+            warnBox.style.display = isHot ? 'block' : 'none';
+        }
+    }
+
+    // Kullanici tetiklemeli konum izni istegi - butona basinca cagrilir
+    // Mobil tarayicilarda konum izni SADECE dogrudan bir kullanici tiklamasindan sonra guvenilir sekilde acilir
+    function requestWeatherManually() {
+        var statusEl = document.getElementById('weatherManualStatus');
+        if (statusEl) statusEl.textContent = 'Konum isteniyor...';
+
+        if (!navigator.geolocation) {
+            if (statusEl) statusEl.textContent = 'Tarayicin konum ozelligini desteklemiyor.';
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            function(pos) {
+                var lat = pos.coords.latitude;
+                var lon = pos.coords.longitude;
+                fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + '&current=temperature_2m&timezone=auto')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.current && typeof data.current.temperature_2m === 'number') {
+                            var temp = Math.round(data.current.temperature_2m);
+                            weatherCache = { temp: temp, city: null, ts: Date.now() };
+                            applyWeatherWarning(temp, null);
+                            if (statusEl) statusEl.textContent = 'Guncel sicaklik: ' + temp + 'C. Kaydedildi!';
+                        } else {
+                            if (statusEl) statusEl.textContent = 'Hava verisi alinamadi, tekrar dene.';
+                        }
+                    })
+                    .catch(function() {
+                        if (statusEl) statusEl.textContent = 'Baglanti hatasi, tekrar dene.';
+                    });
+            },
+            function(err) {
+                var msg = 'Konum izni reddedildi.';
+                if (err && err.code === 1) msg = 'Konum izni reddedildi. Tarayici ayarlarindan izin ver.';
+                else if (err && err.code === 2) msg = 'Konum bulunamadi.';
+                else if (err && err.code === 3) msg = 'Konum istegi zaman asimina ugradi.';
+                if (statusEl) statusEl.textContent = msg;
+            },
+            { timeout: 8000, maximumAge: 0 }
+        );
+    }
+
+    // ===== OTOMATIK RECETE SKORLAMA =====
+    function calcRecipeScores() {
+        var completed = brews.filter(function(b) {
+            return (b.status === 'Olgunlasiyor' || b.status === 'Olgunlaşıyor') && b.rating > 0;
+        });
+
+        if (completed.length === 0) return [];
+
+        var scores = completed.map(function(b) {
+            var score = 0;
+            var maxLiters = Math.max.apply(null, brews.map(function(x){ return x.liters || 1; }));
+            var maxPrice = Math.max.apply(null, brews.map(function(x){ return x.price || 1; }));
+
+            // Puan agirligi: %40 kullanici puani, %25 maliyet verimliligi, %20 hiz, %15 ABV tutarliligi
+            score += (b.rating / 5) * 40;
+
+            var costPerLiter = (b.price || 0) / (b.liters || 1);
+            var avgCostPerLiter = brews.reduce(function(s, x){ return s + ((x.price||0)/(x.liters||1)); }, 0) / brews.length;
+            if (avgCostPerLiter > 0) {
+                score += Math.max(0, (1 - (costPerLiter / avgCostPerLiter) + 1)) * 12.5;
+            }
+
+            var fT = parseInt(b.fT) || 14;
+            var avgFT = brews.reduce(function(s, x){ return s + (parseInt(x.fT)||14); }, 0) / brews.length;
+            if (avgFT > 0) {
+                score += Math.max(0, (1 - (fT / avgFT) + 1)) * 10;
+            }
+
+            var abv = parseFloat(b.abv) || 0;
+            if (abv >= 4 && abv <= 8) score += 15;
+            else if (abv > 0) score += 8;
+
+            return { brew: b, score: Math.round(score) };
+        });
+
+        scores.sort(function(a, b) { return b.score - a.score; });
+        return scores;
+    }
+
+    function renderRecipeScores() {
+        var container = document.getElementById('recipeScoreList');
+        if (!container) return;
+
+        var scores = calcRecipeScores();
+        if (scores.length === 0) {
+            container.innerHTML = '<div style="text-align:center;padding:20px;color:#4a5568;font-size:11px;">Henüz puanlanmış ve şişelenmiş bira yok. Kitlerine yıldız ver, burada sıralama görünsün!</div>';
+            return;
+        }
+
+        var medals = ['🥇', '🥈', '🥉'];
+        var html = '';
+        for (var i = 0; i < Math.min(scores.length, 10); i++) {
+            var s = scores[i];
+            var b = s.brew;
+            var medal = i < 3 ? medals[i] : (i + 1) + '.';
+            var barColor = s.score >= 80 ? '#2ecc71' : s.score >= 60 ? '#f39c12' : '#e74c3c';
+
+            html += '<div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:10px;margin-bottom:8px;">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+            html += '<div style="font-size:13px;font-weight:bold;color:#fff;">' + medal + ' #' + b.no + ' — ' + b.name + '</div>';
+            html += '<div style="font-size:14px;font-weight:bold;color:' + barColor + ';">' + s.score + '/100</div>';
+            html += '</div>';
+            html += '<div style="background:#111;height:6px;border-radius:5px;overflow:hidden;margin-bottom:6px;"><div style="height:100%;width:' + s.score + '%;background:' + barColor + ';border-radius:5px;"></div></div>';
+            html += '<div style="font-size:9px;color:#a4b0be;display:flex;gap:10px;">';
+            html += '<span>⭐ ' + b.rating + '/5</span>';
+            html += '<span>💰 ' + ((b.price||0)/(b.liters||1)).toFixed(1) + ' TL/L</span>';
+            html += '<span>⏱️ ' + (b.fT||14) + ' gün</span>';
+            html += '<span>🍺 %' + (b.abv||0) + '</span>';
+            html += '</div>';
+            html += '</div>';
+        }
+
+        if (scores.length > 0) {
+            html += '<div style="background:rgba(46,204,113,0.1);border:1px solid rgba(46,204,113,0.25);border-radius:10px;padding:10px;margin-top:8px;font-size:10px;color:#2ecc71;text-align:center;">';
+            html += '🏆 En başarılı tarifin: <b>' + scores[0].brew.name + '</b> (' + scores[0].score + '/100 puan)';
+            html += '</div>';
+        }
+
+        container.innerHTML = html;
+    }
+
+
+    // ===== MALZEME STOK TAKİBİ =====
+    var STOCK_KEY = 'bullemann_stock_v1';
+    var stockItems = JSON.parse(localStorage.getItem(STOCK_KEY) || '[]');
+
+    function saveStockItems() {
+        localStorage.setItem(STOCK_KEY, JSON.stringify(stockItems));
+    }
+
+    function addStockItem() {
+        var nameInput = document.getElementById('stockNameInput');
+        var qtyInput = document.getElementById('stockQtyInput');
+        var unitInput = document.getElementById('stockUnitInput');
+
+        var name = nameInput.value.trim();
+        var qty = parseFloat(qtyInput.value);
+        var unit = unitInput.value;
+
+        if (!name || !qty || qty <= 0) {
+            alert('Malzeme adı ve miktar giriniz!');
+            return;
+        }
+
+        var existing = stockItems.find(function(s) { return s.name.toLowerCase() === name.toLowerCase(); });
+        if (existing) {
+            existing.qty += qty;
+        } else {
+            stockItems.push({ id: Date.now(), name: name, qty: qty, unit: unit });
+        }
+
+        saveStockItems();
+        nameInput.value = '';
+        qtyInput.value = '';
+        renderStockItems();
+    }
+
+    function updateStockQty(id, delta) {
+        var item = stockItems.find(function(s) { return s.id === id; });
+        if (!item) return;
+        item.qty = Math.max(0, item.qty + delta);
+        saveStockItems();
+        renderStockItems();
+    }
+
+    function deleteStockItem(id) {
+        stockItems = stockItems.filter(function(s) { return s.id !== id; });
+        saveStockItems();
+        renderStockItems();
+    }
+
+    function renderStockItems() {
+        var container = document.getElementById('stockItemsList');
+        if (!container) return;
+
+        if (stockItems.length === 0) {
+            container.innerHTML = '<div style="text-align:center;padding:15px;color:#4a5568;font-size:11px;">Henüz malzeme eklenmedi. Aşağıdan ekle!</div>';
+            return;
+        }
+
+        var html = '';
+        stockItems.forEach(function(item) {
+            var lowStock = item.qty <= 1;
+            var color = lowStock ? '#e74c3c' : '#2ecc71';
+            html += '<div style="display:flex;align-items:center;gap:8px;background:rgba(0,0,0,0.2);border-radius:8px;padding:8px 10px;margin-bottom:6px;' + (lowStock ? 'border:1px solid rgba(231,76,60,0.3);' : '') + '">';
+            html += '<div style="flex:1;min-width:0;">';
+            html += '<div style="font-size:11px;font-weight:bold;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + item.name + (lowStock ? ' ⚠️' : '') + '</div>';
+            html += '<div style="font-size:10px;color:' + color + ';font-weight:bold;">' + item.qty + ' ' + item.unit + '</div>';
+            html += '</div>';
+            html += '<button onclick="updateStockQty(' + item.id + ',-1)" style="background:rgba(231,76,60,0.15);border:1px solid rgba(231,76,60,0.3);color:#e74c3c;width:26px;height:26px;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer;">-</button>';
+            html += '<button onclick="updateStockQty(' + item.id + ',1)" style="background:rgba(46,204,113,0.15);border:1px solid rgba(46,204,113,0.3);color:#2ecc71;width:26px;height:26px;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer;">+</button>';
+            html += '<button onclick="deleteStockItem(' + item.id + ')" style="background:none;border:none;color:#485460;font-size:12px;cursor:pointer;padding:4px;">🗑️</button>';
+            html += '</div>';
+        });
+
+        container.innerHTML = html;
+    }
+
+    // ===== KİŞİSEL REÇETE DEFTERİ =====
+    var MY_RECIPES_KEY = 'bullemann_myrecipes_v1';
+    var myRecipes = JSON.parse(localStorage.getItem(MY_RECIPES_KEY) || '[]');
+
+    function saveMyRecipes() {
+        localStorage.setItem(MY_RECIPES_KEY, JSON.stringify(myRecipes));
+    }
+
+    function addMyRecipe() {
+        var titleInput = document.getElementById('recipeTitleInput');
+        var noteInput = document.getElementById('recipeNoteInput');
+
+        var title = titleInput.value.trim();
+        var note = noteInput.value.trim();
+
+        if (!title || !note) {
+            alert('Başlık ve detay giriniz!');
+            return;
+        }
+
+        myRecipes.unshift({
+            id: Date.now(),
+            title: title,
+            note: note,
+            date: new Date().toLocaleDateString('tr-TR')
+        });
+
+        saveMyRecipes();
+        titleInput.value = '';
+        noteInput.value = '';
+        renderMyRecipes();
+    }
+
+    function deleteMyRecipe(id) {
+        if (!confirm('Bu tarifi silmek istiyor musun?')) return;
+        myRecipes = myRecipes.filter(function(r) { return r.id !== id; });
+        saveMyRecipes();
+        renderMyRecipes();
+    }
+
+    function renderMyRecipes() {
+        var container = document.getElementById('myRecipesList');
+        if (!container) return;
+
+        if (myRecipes.length === 0) {
+            container.innerHTML = '<div style="text-align:center;padding:15px;color:#4a5568;font-size:11px;">Henüz kişisel tarif eklenmedi. Aşağıdan ekle!</div>';
+            return;
+        }
+
+        var html = '';
+        myRecipes.forEach(function(r) {
+            html += '<div style="background:rgba(230,126,34,0.08);border-left:3px solid #e67e22;border-radius:0 8px 8px 0;padding:8px;margin-bottom:6px;position:relative;">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;">';
+            html += '<div style="font-size:12px;font-weight:bold;color:#e67e22;margin-bottom:4px;">' + r.title + '</div>';
+            html += '<span style="font-size:9px;color:#636e72;">' + r.date + '</span>';
+            html += '</div>';
+            html += '<div style="font-size:11px;color:#ddd;line-height:1.4;">' + r.note.split('\\n').join('<br>') + '</div>';
+            html += '<i class="fas fa-trash-alt" onclick="deleteMyRecipe(' + r.id + ')" style="position:absolute;bottom:6px;right:8px;color:#485460;font-size:10px;cursor:pointer;"></i>';
+            html += '</div>';
+        });
+
+        container.innerHTML = html;
+    }
+
+    // ===== BİRA FOTOĞRAF GALERİSİ =====
+    var GALLERY_KEY = 'bullemann_gallery_v1';
+    var galleryPhotos = JSON.parse(localStorage.getItem(GALLERY_KEY) || '[]');
+
+    function saveGalleryPhotos() {
+        try {
+            localStorage.setItem(GALLERY_KEY, JSON.stringify(galleryPhotos));
+        } catch(e) {
+            alert('Depolama alanı doldu! Bazı eski fotoğrafları silmen gerekebilir.');
+        }
+    }
+
+    function populateGalleryBrewSelect() {
+        var sel = document.getElementById('galleryBrewSelect');
+        if (!sel) return;
+        var html = '<option value="">Genel (kit seçme)</option>';
+        brews.forEach(function(b) {
+            html += '<option value="' + b.id + '">#' + b.no + ' - ' + b.name + '</option>';
+        });
+        sel.innerHTML = html;
+    }
+
+    function addGalleryPhoto(event) {
+        var file = event.target.files[0];
+        if (!file) return;
+
+        if (file.size > 2 * 1024 * 1024) {
+            alert('Fotoğraf çok büyük! 2MB altı bir fotoğraf seç.');
+            return;
+        }
+
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            var brewSelect = document.getElementById('galleryBrewSelect');
+            var brewId = brewSelect ? brewSelect.value : '';
+            var brewName = '';
+            if (brewId) {
+                var b = brews.find(function(x) { return x.id == brewId; });
+                if (b) brewName = b.name;
+            }
+
+            galleryPhotos.unshift({
+                id: Date.now(),
+                data: e.target.result,
+                brewId: brewId || null,
+                brewName: brewName,
+                date: new Date().toLocaleDateString('tr-TR')
+            });
+
+            saveGalleryPhotos();
+            renderGallery();
+            event.target.value = '';
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function deleteGalleryPhoto(id) {
+        galleryPhotos = galleryPhotos.filter(function(p) { return p.id !== id; });
+        saveGalleryPhotos();
+        renderGallery();
+    }
+
+    function showGalleryPhotoFull(id) {
+        var photo = galleryPhotos.find(function(p) { return p.id === id; });
+        if (!photo) return;
+
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;';
+        overlay.innerHTML = '<img src="' + photo.data + '" style="max-width:100%;max-height:70vh;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.5);">'
+            + '<div style="color:#fff;margin-top:12px;font-size:13px;text-align:center;">' + (photo.brewName || 'Genel Fotoğraf') + '<br><span style="color:#a4b0be;font-size:11px;">' + photo.date + '</span></div>'
+            + '<button onclick="this.parentElement.remove()" style="margin-top:16px;background:rgba(255,255,255,0.1);border:none;color:#fff;padding:10px 24px;border-radius:20px;font-size:12px;cursor:pointer;">Kapat</button>';
+
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) overlay.remove();
+        });
+        document.body.appendChild(overlay);
+    }
+
+    function renderGallery() {
+        populateGalleryBrewSelect();
+        var grid = document.getElementById('galleryGrid');
+        if (!grid) return;
+
+        if (galleryPhotos.length === 0) {
+            grid.innerHTML = '<div style="grid-column:span 3;text-align:center;padding:15px;color:#4a5568;font-size:11px;">Henüz fotoğraf eklenmedi.</div>';
+            return;
+        }
+
+        var html = '';
+        galleryPhotos.forEach(function(p) {
+            html += '<div style="position:relative;aspect-ratio:1;border-radius:8px;overflow:hidden;cursor:pointer;" onclick="showGalleryPhotoFull(' + p.id + ')">';
+            html += '<img src="' + p.data + '" style="width:100%;height:100%;object-fit:cover;">';
+            html += '<div onclick="event.stopPropagation();deleteGalleryPhoto(' + p.id + ')" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.6);color:#e74c3c;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;">✕</div>';
+            html += '</div>';
+        });
+
+        grid.innerHTML = html;
+    }
+
+    // ===== BARDAK/KADEH TAVSİYE SİSTEMİ =====
+    var glassDB = {
+        'Pilsner':            { glass: 'Pilsner Kadehi (uzun, ince)', temp: '4-6°C', tip: 'Ince yapisi karbonasyonu korur, aromayi yukari tasır.' },
+        'Pilsner Klasik':     { glass: 'Pilsner Kadehi', temp: '4-6°C', tip: 'Berrak rengi ve kopugu on plana cikarir.' },
+        'Premium Pilsner':    { glass: 'Pilsner Kadehi (uzun)', temp: '5-7°C', tip: 'Zengin malt aromasini yogunlastirir.' },
+        'Export':             { glass: 'Uzun Bardak (Willi Becher)', temp: '6-8°C', tip: 'Dolgun govdeyi dengeler.' },
+        'Lager':              { glass: 'Fıçı Bardagi', temp: '4-6°C', tip: 'Temiz, sade icim icin ideal.' },
+        'Munich Lager':       { glass: 'Maß Kupasi (1L kupa)', temp: '6-8°C', tip: 'Alman gelenegine uygun, Oktoberfest ruhu.' },
+        'Blonde Ale':         { glass: 'Tulip Kadeh', temp: '8-10°C', tip: 'Hafif meyve notalarini one cikarir.' },
+        'Ruby Ale':           { glass: 'Nonik Pint', temp: '10-12°C', tip: 'Karamel aromasini sicak tutar.' },
+        'Summer Ale':         { glass: 'Uzun Bardak', temp: '4-6°C', tip: 'Ferahlik hissini artirir, buzlu servis de olur.' },
+        'Yorkshire':          { glass: 'Nonik Pint', temp: '10-12°C', tip: 'Ingiliz pub gelenegi, kremamsi kopuk icin ideal.' },
+        'Yorkshire Bitter':   { glass: 'Dimple Mug (kulplu)', temp: '10-12°C', tip: 'Geleneksel Ingiliz sunumu.' },
+        'Belgian Strong Ale': { glass: 'Tulip Kadeh (buyuk)', temp: '10-12°C', tip: 'Guclu aromayi konsantre eder, yavas yudumla!' },
+        'English IPA':        { glass: 'Nonik Pint', temp: '8-10°C', tip: 'Hop burukluğunu dengeler.' },
+        'American IPA':       { glass: 'IPA Kadehi (yukari acilan)', temp: '7-9°C', tip: 'Tropikal hop aromasini burnuna tasır - ozel tasarim!' },
+        'New England IPA':    { glass: 'IPA Kadehi', temp: '7-9°C', tip: 'Hazy gorunumu ve meyve aromasini vurgular.' },
+        'Session IPA':        { glass: 'Uzun Bardak', temp: '7-9°C', tip: 'Hafif govdeyi ferah tutar.' },
+        'Wheat':               { glass: 'Weizen Kadehi (uzun, dar dip)', temp: '6-8°C', tip: 'Yuksek kopugu icin ozel tasarlanmis, muz aromasini hapseder!' },
+        'Belgian Wit':         { glass: 'Wit Kadehi (kisa, genis)', temp: '3-5°C', tip: 'Bulanikligi ve narenciye kabugu esintisini one cikarir.' },
+        'Hefeweizen':          { glass: 'Weizen Kadehi', temp: '6-8°C', tip: 'Sise dibini calkalayip mayasiyla birlikte doldur!' },
+        'Stout':               { glass: 'Nonik Pint (Imperial)', temp: '10-12°C', tip: 'Kalin kopugu icin genis agiz gerekli.' },
+        'Irish Stout':         { glass: 'Tulip Pint', temp: '10-12°C', tip: 'Guinness tarzi - yavas dokum, 2 asamali servis.' },
+        'Milk Stout':          { glass: 'Nonik Pint', temp: '10-12°C', tip: 'Kremamsi dokuyu vurgular.' },
+        'Oatmeal Stout':       { glass: 'Snifter (konyak kadehi)', temp: '10-13°C', tip: 'Yulaf govdesinin ipeksi dokusunu hisset.' },
+        'Imperial Stout':      { glass: 'Snifter', temp: '13-16°C', tip: 'Yuksek alkolu icin kucuk yudumlarla, sarap gibi tad!' },
+        'Dark Ale':            { glass: 'Nonik Pint', temp: '10-12°C', tip: 'Kavrulmus malt notalarini korur.' },
+        'Bock':                { glass: 'Kupa (Stein)', temp: '8-10°C', tip: 'Alman gelenegi, dogurucu govdeye uygun buyuk hacim.' },
+        'Doppelbock':          { glass: 'Snifter veya Kupa', temp: '10-12°C', tip: 'Guclu ve karamelli - yavasca yudumla.' },
+        'Cider':               { glass: 'Sampanya Kadehi veya Uzun Bardak', temp: '4-6°C', tip: 'Elma aromasini ve gazlanmayi one cikarir.' },
+        'Dry Cider':           { glass: 'Sampanya Kadehi', temp: '4-6°C', tip: 'Ekşi-tatli dengeyi vurgular.' },
+        'Sweet Cider':         { glass: 'Uzun Bardak', temp: '3-5°C', tip: 'Buzla servis edilebilir, cok ferah.' }
+    };
+
+    function updateGlassRecommendation(kitName) {
+        var box = document.getElementById('glassInfoBox');
+        var txt = document.getElementById('glassInfoText');
+        if (!box || !txt) return;
+
+        var info = glassDB[kitName];
+        if (!info) {
+            box.style.display = 'none';
+            return;
+        }
+
+        txt.innerHTML = '🍷 <b>Önerilen Bardak:</b> ' + info.glass + '<br>'
+            + '🌡️ <b>Servis Sıcaklığı:</b> ' + info.temp + '<br>'
+            + '<span style="color:#ccc;font-weight:normal;">' + info.tip + '</span>';
+        box.style.display = 'block';
+    }
+
+
+    // ===== USTALIK YOLCULUĞU (Tam Ekran) =====
+    var ustalikLevels = [
+        { title: 'Çırak', emoji: '🌱', min: 0, max: 50, color: '#95a5a6', perk: 'Yolculuğun başlangıcı! İlk kitini kur.' },
+        { title: 'Kalfa', emoji: '🔥', min: 50, max: 150, color: '#3498db', perk: 'Temel teknikleri öğrendin. Farklı stiller dene!' },
+        { title: 'Usta', emoji: '⭐', min: 150, max: 500, color: '#9b59b6', perk: 'Deneyimli bir biracısın. Kendi tariflerini geliştir!' },
+        { title: 'Mahzen Lordu', emoji: '👑', min: 500, max: 500, color: '#f39c12', perk: 'Zirvedesin kanki! Efsanevi bir usta oldun.' }
+    ];
+
+    function openUstalikYolculugu() {
+        toggleSidebar();
+        var overlay = document.getElementById('ustalikOverlay');
+        if (overlay) {
+            overlay.style.display = 'flex';
+            renderUstalikYolculugu();
+        }
+    }
+
+    function closeUstalikOverlay() {
+        var overlay = document.getElementById('ustalikOverlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    function renderUstalikYolculugu() {
+        var totalLiters = brews.reduce(function(s, b) { return s + (b.liters || 0); }, 0);
+
+        var currentIdx = 0;
+        for (var i = 0; i < ustalikLevels.length; i++) {
+            if (totalLiters >= ustalikLevels[i].min) currentIdx = i;
+        }
+        var current = ustalikLevels[currentIdx];
+
+        document.getElementById('ustalikCurrentEmoji').textContent = current.emoji;
+        document.getElementById('ustalikCurrentTitle').textContent = current.title;
+        document.getElementById('ustalikCurrentTitle').style.color = current.color;
+        document.getElementById('ustalikCurrentLiters').textContent = totalLiters + ' Litre Üretim';
+
+        var journeyHtml = '';
+        for (var i = 0; i < ustalikLevels.length; i++) {
+            var lvl = ustalikLevels[i];
+            var isDone = i < currentIdx;
+            var isCurrent = i === currentIdx;
+            var isLocked = i > currentIdx;
+
+            var pct = 0;
+            if (isDone) pct = 100;
+            else if (isCurrent) {
+                if (lvl.max === lvl.min) pct = 100;
+                else pct = Math.min(100, Math.round(((totalLiters - lvl.min) / (lvl.max - lvl.min)) * 100));
+            }
+
+            var opacity = isLocked ? '0.4' : '1';
+            var borderColor = isCurrent ? lvl.color : (isDone ? '#2ecc71' : '#3d4852');
+
+            journeyHtml += '<div style="display:flex;gap:14px;margin-bottom:16px;opacity:' + opacity + ';">';
+            journeyHtml += '<div style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;">';
+            journeyHtml += '<div style="width:44px;height:44px;border-radius:50%;background:' + (isDone ? 'rgba(46,204,113,0.2)' : isCurrent ? 'rgba(243,156,18,0.2)' : 'rgba(61,72,82,0.3)') + ';border:2px solid ' + borderColor + ';display:flex;align-items:center;justify-content:center;font-size:20px;">' + (isDone ? '✓' : lvl.emoji) + '</div>';
+            if (i < ustalikLevels.length - 1) {
+                journeyHtml += '<div style="width:2px;height:40px;background:' + (isDone ? '#2ecc71' : '#3d4852') + ';margin-top:4px;"></div>';
+            }
+            journeyHtml += '</div>';
+
+            journeyHtml += '<div style="flex:1;padding-bottom:8px;">';
+            journeyHtml += '<div style="font-size:15px;font-weight:bold;color:' + (isLocked ? '#a4b0be' : '#fff') + ';margin-bottom:2px;">' + lvl.title + (isCurrent ? ' <span style="font-size:10px;background:rgba(243,156,18,0.2);color:#f39c12;padding:2px 8px;border-radius:10px;">ŞU AN BURADASIN</span>' : '') + '</div>';
+            journeyHtml += '<div style="font-size:10px;color:#a4b0be;margin-bottom:6px;">' + lvl.min + 'L' + (lvl.max > lvl.min ? ' - ' + lvl.max + 'L' : '+') + '</div>';
+
+            if (isCurrent) {
+                journeyHtml += '<div class="gas-bar-bg" style="height:6px;background:#111;border-radius:5px;overflow:hidden;"><div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,' + lvl.color + ',#f39c12);border-radius:5px;"></div></div>';
+                journeyHtml += '<div style="font-size:9px;color:#a4b0be;margin-top:3px;">%' + pct + ' tamamlandı</div>';
+            }
+
+            journeyHtml += '<div style="font-size:11px;color:' + (isLocked ? '#636e72' : '#ccc') + ';margin-top:6px;line-height:1.4;">' + lvl.perk + '</div>';
+            journeyHtml += '</div>';
+            journeyHtml += '</div>';
+        }
+
+        document.getElementById('ustalikJourney').innerHTML = journeyHtml;
+
+        var nextInfo = document.getElementById('ustalikNextInfo');
+        var nextText = document.getElementById('ustalikNextText');
+        if (currentIdx >= ustalikLevels.length - 1) {
+            nextInfo.style.display = 'none';
+        } else {
+            nextInfo.style.display = 'block';
+            var nextLvl = ustalikLevels[currentIdx + 1];
+            var kalan = nextLvl.min - totalLiters;
+            nextText.textContent = nextLvl.title + ' seviyesine ' + kalan + ' litre kaldı!';
+        }
+    }
+
+
+    // ===== SESLİ ASİSTAN (Web Speech API) =====
+    var voiceRecognition = null;
+    var isListening = false;
+
+    function openSesliAsistan() {
+        toggleSidebar();
+        var overlay = document.getElementById('sesliAsistanOverlay');
+        if (overlay) overlay.style.display = 'flex';
+    }
+
+    function closeSesliAsistan() {
+        var overlay = document.getElementById('sesliAsistanOverlay');
+        if (overlay) overlay.style.display = 'none';
+        if (isListening) stopVoiceListening();
+    }
+
+    function toggleVoiceListening() {
+        if (isListening) {
+            stopVoiceListening();
+        } else {
+            startVoiceListening();
+        }
+    }
+
+    function startVoiceListening() {
+        var SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognitionAPI) {
+            document.getElementById('voiceStatus').textContent = 'Tarayıcın ses tanımayı desteklemiyor. Chrome kullanmayı dene.';
+            return;
+        }
+
+        voiceRecognition = new SpeechRecognitionAPI();
+        voiceRecognition.lang = 'tr-TR';
+        voiceRecognition.continuous = false;
+        voiceRecognition.interimResults = false;
+
+        var micBtn = document.getElementById('micButton');
+        var statusEl = document.getElementById('voiceStatus');
+        var transcriptEl = document.getElementById('voiceTranscript');
+        var responseEl = document.getElementById('voiceResponse');
+
+        micBtn.classList.add('listening');
+        statusEl.textContent = 'Dinliyorum... Konuş kanki!';
+        transcriptEl.style.display = 'none';
+        responseEl.style.display = 'none';
+        isListening = true;
+
+        voiceRecognition.onresult = function(event) {
+            var transcript = event.results[0][0].transcript;
+            transcriptEl.textContent = '🗣️ ' + transcript;
+            transcriptEl.style.display = 'block';
+            processVoiceCommand(transcript);
+        };
+
+        voiceRecognition.onerror = function(event) {
+            statusEl.textContent = 'Hata: ' + (event.error === 'not-allowed' ? 'Mikrofon izni verilmedi.' : event.error);
+            stopVoiceListening();
+        };
+
+        voiceRecognition.onend = function() {
+            stopVoiceListening();
+        };
+
+        voiceRecognition.start();
+    }
+
+    function stopVoiceListening() {
+        if (voiceRecognition) {
+            try { voiceRecognition.stop(); } catch(e) {}
+        }
+        isListening = false;
+        var micBtn = document.getElementById('micButton');
+        if (micBtn) micBtn.classList.remove('listening');
+        var statusEl = document.getElementById('voiceStatus');
+        if (statusEl && statusEl.textContent.indexOf('Dinliyorum') !== -1) {
+            statusEl.textContent = 'Mikrofona basıp tekrar konuşabilirsin.';
+        }
+    }
+
+    function tryVoiceExample(text) {
+        var transcriptEl = document.getElementById('voiceTranscript');
+        transcriptEl.textContent = '🗣️ ' + text;
+        transcriptEl.style.display = 'block';
+        processVoiceCommand(text);
+    }
+
+    function processVoiceCommand(text) {
+        var lower = text.toLowerCase();
+        var responseEl = document.getElementById('voiceResponse');
+        var statusEl = document.getElementById('voiceStatus');
+        var response = '';
+
+        var now = Date.now();
+        var aktifKovalar = brews.filter(function(b) { return b.status === 'Mayalaniyor' || b.status === 'Mayalanıyor'; });
+        var siseBiralar = brews.filter(function(b) { return (b.status === 'Olgunlasiyor' || b.status === 'Olgunlaşıyor') && b.kalanSise > 0; });
+        var totalSise = siseBiralar.reduce(function(s, b) { return s + b.kalanSise; }, 0);
+        var totalSpent = brews.reduce(function(s, b) { return s + (b.price || 0); }, 0);
+        var marketVal = totalSise * currentMarketPrice;
+        var kar = Math.max(0, marketVal - totalSpent);
+
+        if (lower.indexOf('stok') !== -1) {
+            response = '📦 Stok durumun: <b>' + totalSise + ' şişe</b> hazır bekliyor. <b>' + aktifKovalar.length + ' kova</b> mayalanıyor şu an.';
+        }
+        else if (lower.indexOf('son kit') !== -1 || lower.indexOf('en son') !== -1) {
+            if (brews.length === 0) {
+                response = 'Henüz hiç kit kurmamışsın kanki!';
+            } else {
+                var lastBrew = brews[brews.length - 1];
+                response = '🍺 En son kitin: <b>' + lastBrew.name + '</b> (#' + lastBrew.no + '). Durumu: <b>' + lastBrew.status + '</b>.';
+            }
+        }
+        else if (lower.indexOf('kaç şişe') !== -1 || lower.indexOf('sise') !== -1 || lower.indexOf('şişe') !== -1) {
+            response = '🍾 Toplamda <b>' + totalSise + ' şişe</b> stokta var kanki!';
+        }
+        else if (lower.indexOf('kâr') !== -1 || lower.indexOf('kar') !== -1) {
+            response = '💰 Toplam kârın: <b>' + kar.toFixed(0) + ' TL</b>. Harcadığın: ' + totalSpent.toFixed(0) + ' TL, piyasa değeri: ' + marketVal.toFixed(0) + ' TL.';
+        }
+        else if (lower.indexOf('hava') !== -1) {
+            if (weatherCache.temp !== null) {
+                response = '🌡️ Son bilinen sıcaklık: <b>' + weatherCache.temp + '°C</b>. Sol menüden "Hava Durumunu Kontrol Et" ile güncelleyebilirsin.';
+            } else {
+                response = 'Hava durumu henüz kontrol edilmemiş. Sol menüden "Hava Durumunu Kontrol Et" butonuna bas.';
+            }
+        }
+        else {
+            response = 'Anlayamadım kanki 🤔 "Stok durumum nasıl", "Kaç şişem var" veya "Toplam kârım ne kadar" gibi sorular deneyebilirsin.';
+        }
+
+        responseEl.innerHTML = response;
+        responseEl.style.display = 'block';
+        statusEl.textContent = 'Cevap hazır! Tekrar sormak için mikrofona bas.';
+
+        // Sesli yanıt (TTS)
+        speakResponse(response.replace(/<[^>]+>/g, ''));
+    }
+
+    function speakResponse(text) {
+        if (!window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        var utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'tr-TR';
+        utterance.rate = 1.0;
+        window.speechSynthesis.speak(utterance);
+    }
+
+    // ===== BİRA KOKTEYL ÜRETİCİ =====
+    var klasikKokteyler = [
+        { name: 'Black and Tan', desc: 'Stout + Pale Ale, yavaşça kaşık üzerinden dökülerek katmanlanır.', oran: '%50 - %50' },
+        { name: 'Snakebite', desc: 'Lager + Cider karışımı, İngiliz pub klasiği.', oran: '%50 - %50' },
+        { name: 'Shandy', desc: 'Lager + Limonata, ferahlatıcı yaz içeceği.', oran: '%50 - %50' },
+        { name: 'Radler', desc: 'Wheat Beer + Portakal suyu, Alman klasiği.', oran: '%60 - %40' },
+        { name: 'Michelada', desc: 'Lager + Domates suyu + Limon + Acı sos, Meksika usulü.', oran: '%70 - %30' }
+    ];
+
+    function openKokteylUretici() {
+        toggleSidebar();
+        var overlay = document.getElementById('kokteylOverlay');
+        if (overlay) {
+            overlay.style.display = 'flex';
+            populateKokteylSelects();
+            renderKlasikKokteyler();
+        }
+    }
+
+    function closeKokteylUretici() {
+        var overlay = document.getElementById('kokteylOverlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    function populateKokteylSelects() {
+        var sel1 = document.getElementById('kokteylBira1');
+        var sel2 = document.getElementById('kokteylBira2');
+        if (!sel1 || !sel2) return;
+
+        var siseBiralar = brews.filter(function(b) {
+            return (b.status === 'Olgunlasiyor' || b.status === 'Olgunlaşıyor') && b.kalanSise > 0;
+        });
+
+        if (siseBiralar.length === 0) {
+            sel1.innerHTML = '<option>Stokta bira yok</option>';
+            sel2.innerHTML = '<option>Stokta bira yok</option>';
+            return;
+        }
+
+        var html = '';
+        siseBiralar.forEach(function(b) {
+            html += '<option value="' + b.id + '">' + b.name + ' (%' + (b.abv || 0) + ')</option>';
+        });
+
+        sel1.innerHTML = html;
+        sel2.innerHTML = html;
+        if (siseBiralar.length > 1) sel2.selectedIndex = 1;
+    }
+
+    function generateKokteyl() {
+        var sel1 = document.getElementById('kokteylBira1');
+        var sel2 = document.getElementById('kokteylBira2');
+        var resultEl = document.getElementById('kokteylResult');
+
+        var id1 = sel1.value;
+        var id2 = sel2.value;
+
+        if (!id1 || !id2 || id1 === id2) {
+            resultEl.innerHTML = '<div style="background:rgba(231,76,60,0.1);border:1px solid rgba(231,76,60,0.3);border-radius:12px;padding:14px;text-align:center;color:#e74c3c;font-size:12px;">İki farklı bira seçmelisin kanki!</div>';
+            return;
+        }
+
+        var b1 = brews.find(function(b) { return b.id == id1; });
+        var b2 = brews.find(function(b) { return b.id == id2; });
+        if (!b1 || !b2) return;
+
+        var abv1 = parseFloat(b1.abv) || 5;
+        var abv2 = parseFloat(b2.abv) || 5;
+        var avgAbv = ((abv1 + abv2) / 2).toFixed(1);
+
+        var isDark1 = /stout|dark|bock|porter/i.test(b1.name);
+        var isDark2 = /stout|dark|bock|porter/i.test(b2.name);
+        var isLight1 = /pilsner|lager|wheat|blonde|summer/i.test(b1.name);
+        var isLight2 = /pilsner|lager|wheat|blonde|summer/i.test(b2.name);
+        var isHop1 = /ipa/i.test(b1.name);
+        var isHop2 = /ipa/i.test(b2.name);
+
+        var kokteylAdi = '';
+        var aciklama = '';
+        var oran = '%50 - %50';
+
+        if ((isDark1 && isLight2) || (isDark2 && isLight1)) {
+            kokteylAdi = 'Kendi "Black and Tan" Karışımın';
+            aciklama = 'Koyu ve açık renkli biraların katmanlaşması. Önce açık rengi bardağa doldur, sonra koyu olanı bir kaşık üzerinden yavaşça dök - iki renk katmanlaşır!';
+            oran = '%50 - %50';
+        } else if ((isHop1 && !isHop2) || (isHop2 && !isHop1)) {
+            kokteylAdi = 'Hop Dengeleyici Karışım';
+            aciklama = 'IPA\'nın sert acılığını diğer biranın yumuşaklığıyla dengele. Acı sevmeyenler için harika bir giriş kokteyli!';
+            oran = '%40 IPA - %60 Diğer';
+        } else if (isLight1 && isLight2) {
+            kokteylAdi = 'Ferah Yaz Karışımı';
+            aciklama = 'İki hafif biranın birleşimi - süper ferah, kolay içimli bir yaz kokteyli çıkar!';
+            oran = '%50 - %50';
+        } else {
+            kokteylAdi = b1.name + ' x ' + b2.name + ' Hibriti';
+            aciklama = 'Kendi özgün karışımın! Farklı aroma profillerini birleştirerek benzersiz bir tat keşfedebilirsin.';
+            oran = '%50 - %50';
+        }
+
+        var html = '<div style="background:rgba(155,89,182,0.1);border:1px solid rgba(155,89,182,0.3);border-radius:14px;padding:18px;">';
+        html += '<div style="font-size:16px;font-weight:bold;color:#c39bd3;margin-bottom:8px;">🍹 ' + kokteylAdi + '</div>';
+        html += '<div style="font-size:12px;color:#ddd;line-height:1.6;margin-bottom:12px;">' + aciklama + '</div>';
+        html += '<div style="display:flex;gap:10px;margin-bottom:10px;">';
+        html += '<div style="flex:1;background:rgba(0,0,0,0.2);border-radius:8px;padding:8px;text-align:center;"><div style="font-size:9px;color:#a4b0be;">Karışım</div><div style="font-size:12px;font-weight:bold;color:#fff;">' + b1.name + ' + ' + b2.name + '</div></div>';
+        html += '</div>';
+        html += '<div style="display:flex;justify-content:space-between;font-size:11px;color:#a4b0be;">';
+        html += '<span>📐 Oran: <b style="color:#9b59b6;">' + oran + '</b></span>';
+        html += '<span>🍺 Tahmini ABV: <b style="color:#f39c12;">%' + avgAbv + '</b></span>';
+        html += '</div>';
+        html += '</div>';
+
+        resultEl.innerHTML = html;
+    }
+
+    function renderKlasikKokteyler() {
+        var container = document.getElementById('kokteylKlasikler');
+        if (!container) return;
+
+        var html = '';
+        klasikKokteyler.forEach(function(k) {
+            html += '<div style="background:rgba(0,0,0,0.2);border-radius:10px;padding:10px;margin-bottom:8px;">';
+            html += '<div style="font-size:12px;font-weight:bold;color:#9b59b6;margin-bottom:3px;">' + k.name + '</div>';
+            html += '<div style="font-size:10px;color:#a4b0be;margin-bottom:4px;">' + k.desc + '</div>';
+            html += '<div style="font-size:9px;color:#636e72;">Oran: ' + k.oran + '</div>';
+            html += '</div>';
+        });
+
+        container.innerHTML = html;
     }
 
 </script>
